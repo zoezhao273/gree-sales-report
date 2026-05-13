@@ -8,9 +8,9 @@
 
 | 名称 | 地址 |
 |------|------|
-| **网页地址** | https://zoezhao273.github.io/greemexico-salesreport2/gree_sales_report.html |
+| **网页地址** | https://greemexico-salesreport2.netlify.app/
 | **GitHub 仓库** | https://github.com/zoezhao273/greemexico-salesreport2 |
-| **Google Sheets（目标数据）** | *(在此填入你的 Google Sheet 链接)* |
+| **Google Sheets（目标数据）** | https://docs.google.com/spreadsheets/d/1n05cRCtLIRZxny_bM2AcKiuv8nWd-Rf7K5BJxnD5Q6g/edit?gid=1758479327#gid=1758479327 |
 | **Apps Script URL** | https://script.google.com/macros/s/AKfycbyVug4IbhJ8IhVQySo2dZCHxlXlgCLhOAHeJYyZW6BA5HzKQhRam1uJ_L6t8AlDBxZU/exec |
 
 ---
@@ -19,7 +19,7 @@
 
 | 文件 | 说明 |
 |------|------|
-| `gree_sales_report.html` | 完整网页，包含所有功能 |
+| `gree_sales_report2.html` | 完整网页，包含所有功能 |
 | `README.md` | 项目说明文档 |
 
 ---
