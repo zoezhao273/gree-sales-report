@@ -8,7 +8,7 @@
 
 | 名称 | 地址 |
 |------|------|
-| **网页地址** | https://zoezhao273.github.io/greemexico-salesreport2/gree_sales_report2.html |
+| **网页地址** | https://greemexico-salesreport2.netlify.app/ |
 | **GitHub 仓库** | https://github.com/zoezhao273/greemexico-salesreport2 |
 | **Apps Script URL** | https://script.google.com/macros/s/AKfycbyVug4IbhJ8IhVQySo2dZCHxlXlgCLhOAHeJYyZW6BA5HzKQhRam1uJ_L6t8AlDBxZU/exec |
 
