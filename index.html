@@ -1,0 +1,1298 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Sales Performance Report — GREE Mexico</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;background:#f4f4f2;color:#111;min-height:100vh}
+.wrap{max-width:980px;margin:0 auto;padding:1.75rem 1.5rem}
+.header{display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:1.5rem;flex-wrap:wrap;gap:12px}
+.title{font-size:20px;font-weight:600}
+.subtitle{font-size:13px;color:#888;margin-top:3px}
+.sync-status{font-size:12px;padding:4px 10px;border-radius:20px;font-weight:500;display:inline-flex;align-items:center;gap:5px}
+.sync-status.ok{background:#EAF3DE;color:#3B6D11}
+.sync-status.loading{background:#f0f0ee;color:#888}
+.sync-status.err{background:#FCEBEB;color:#A32D2D}
+.tabs{display:flex;border-bottom:1px solid #e0e0e0;margin-bottom:1.5rem}
+.tab{padding:9px 18px;font-size:14px;cursor:pointer;border-bottom:2px solid transparent;color:#888;background:none;border-top:none;border-left:none;border-right:none;font-family:inherit;transition:.12s}
+.tab:hover{color:#111}
+.tab.active{color:#111;border-bottom-color:#111;font-weight:500}
+.card{background:#fff;border:1px solid #e5e5e5;border-radius:12px;padding:1.25rem;margin-bottom:1rem}
+.filters{display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end;margin-bottom:1.5rem}
+.fg{display:flex;flex-direction:column;gap:5px}
+.fl{font-size:12px;color:#888;font-weight:500;letter-spacing:.3px;text-transform:uppercase}
+select,input[type=month],input[type=number],input[type=text]{font-size:13px;padding:7px 10px;border:1px solid #ddd;border-radius:8px;background:#fff;color:#111;font-family:inherit;outline:none;transition:.12s}
+select:focus,input:focus{border-color:#378ADD}
+.btn{padding:8px 14px;font-size:13px;border:1px solid #ddd;border-radius:8px;cursor:pointer;background:#fff;color:#111;display:inline-flex;align-items:center;gap:6px;font-family:inherit;transition:.12s;white-space:nowrap}
+.btn:hover{background:#f4f4f2;border-color:#bbb}
+.btn.primary{background:#111;color:#fff;border-color:#111}
+.btn.primary:hover{background:#333}
+.btn.green{background:#1D9E75;color:#fff;border-color:#1D9E75}
+.btn.green:hover{background:#0F6E56}
+.btn.blue{background:#185FA5;color:#fff;border-color:#185FA5}
+.btn.blue:hover{background:#0C447C}
+.btn.sm{padding:5px 10px;font-size:12px}
+.btn:disabled{opacity:.5;cursor:not-allowed}
+.toggle-row{display:flex;align-items:center;gap:8px;font-size:13px;color:#555}
+.toggle{position:relative;display:inline-block;width:36px;height:20px;flex-shrink:0}
+.toggle input{opacity:0;width:0;height:0}
+.slider{position:absolute;cursor:pointer;inset:0;background:#ccc;border-radius:10px;transition:.2s}
+.slider:before{position:absolute;content:"";height:14px;width:14px;left:3px;bottom:3px;background:#fff;border-radius:50%;transition:.2s}
+input:checked+.slider{background:#1D9E75}
+input:checked+.slider:before{transform:translateX(16px)}
+.upload-zone{border:2px dashed #ddd;border-radius:12px;padding:3rem;text-align:center;cursor:pointer;transition:.15s}
+.upload-zone:hover,.upload-zone.drag{background:#f4f4f2;border-color:#aaa}
+.badge{display:inline-block;font-size:11px;padding:2px 8px;border-radius:6px;font-weight:500}
+.badge.green{background:#EAF3DE;color:#3B6D11}
+.badge.amber{background:#FAEEDA;color:#854F0B}
+.badge.blue{background:#dbeafe;color:#1e40af}
+.rtable{width:100%;border-collapse:collapse;font-size:13px}
+.rtable th{background:#f8f8f6;padding:8px 10px;text-align:center;font-weight:500;font-size:12px;color:#666;border:1px solid #e5e5e5}
+.rtable td{padding:8px 10px;border:1px solid #e5e5e5;text-align:center;color:#222}
+.rtable td.lft{text-align:left;font-weight:500}
+.rtable tr.row-total td{background:#f8f8f6;font-weight:600}
+.rtable tr.row-total td.lft{font-size:12px}
+.rtable tr.row-mgr td.lft{color:#1D9E75}
+.rtable tr.row-group td{background:#eef4fb;font-weight:600}
+.rtable tr.row-group td.lft{color:#185FA5;font-size:12px;padding-left:1rem}
+.rtable td.num{font-variant-numeric:tabular-nums}
+.pct-g{color:#1D9E75;font-weight:600}
+.pct-m{color:#BA7517;font-weight:600}
+.pct-b{color:#E24B4A;font-weight:600}
+.etable{width:100%;border-collapse:collapse;table-layout:fixed}
+.etable th{padding:6px 6px;font-size:11px;font-weight:500;color:#666;background:#f8f8f6;border:1px solid #e5e5e5;text-align:center;white-space:nowrap;overflow:hidden;position:relative;user-select:none}
+.etable th.lft{text-align:left}
+.etable td{padding:3px 4px;border:1px solid #e5e5e5;vertical-align:middle}
+.etable tr.tr-sum td{background:rgba(55,138,221,0.08);font-weight:600}
+.etable tr.tr-sum td.sum-label{font-size:11px;color:#185FA5;text-align:left;padding-left:6px}
+.etable tr.tr-sum td.sum-val{font-size:11px;font-variant-numeric:tabular-nums;color:#185FA5;text-align:right;padding-right:8px;font-weight:600}
+.etable tr.tr-mgr td{background:rgba(29,158,117,0.05)}
+.etable tr.add-row td{background:#f8f8f6;border-top:1px dashed #ddd}
+.etable tr.tr-gsum td{background:rgba(29,158,117,0.10)}
+.etable tr.tr-gsum td.gsum-label{font-size:11px;color:#0F6E56;text-align:left;padding-left:18px;font-weight:600}
+.etable tr.tr-gsum td.gsum-val{font-size:11px;font-variant-numeric:tabular-nums;color:#0F6E56;text-align:right;padding-right:8px;font-weight:600}
+.lead-toggle{border:none;background:transparent;cursor:pointer;font-size:13px;line-height:1;opacity:.25;filter:grayscale(1);padding:0;flex-shrink:0}
+.lead-toggle:hover{opacity:.6}
+.lead-toggle.on{opacity:1;filter:none}
+.grp-in{border:1px solid #eee!important;background:#fafafa;font-size:10px!important;text-align:center;width:64px!important;flex:0 0 64px;flex-shrink:0;padding:3px 3px!important}
+.etable .person-row .ri[type=text]:last-child{flex:1 1 auto;min-width:40px}
+.col-resize{position:absolute;right:0;top:0;height:100%;width:6px;cursor:col-resize;z-index:1}
+.col-resize:hover,.col-resize.active{background:rgba(55,138,221,.3)}
+.ri{font-size:11px;padding:3px 5px;border:1px solid transparent;border-radius:4px;background:transparent;color:#111;width:100%;display:block;font-family:inherit}
+.ri:hover{border-color:#ddd;background:#fff}
+.ri:focus{outline:none;border-color:#378ADD;background:#fff}
+.ri.num{text-align:right}
+.dh{cursor:grab;color:#bbb;display:inline-flex;align-items:center;justify-content:center;width:100%;font-size:15px}
+.dh:active{cursor:grabbing}
+tr.dragging{opacity:.35}
+tr.drag-over td{border-top:2px solid #378ADD}
+.mgr-b{font-size:10px;font-weight:500;color:#1D9E75;background:rgba(29,158,117,.12);border-radius:3px;padding:1px 5px;white-space:nowrap;flex-shrink:0;display:inline-flex;align-items:center;gap:2px}
+.bh{display:flex;align-items:center;gap:8px;padding:9px 10px;background:#f8f8f6;border:1px solid #e5e5e5;border-bottom:none;border-radius:12px 12px 0 0}
+.bwrap{margin-bottom:1.25rem}
+.btw{border:1px solid #e5e5e5;border-radius:0 0 12px 12px;overflow:hidden}
+.bni{font-size:13px;font-weight:600;flex:1;min-width:0;background:transparent;border:none;color:#111;padding:2px 5px;border-radius:4px;font-family:inherit}
+.bni:focus{outline:none;background:#fff;border:1px solid #ddd}
+.delbtn{padding:3px 8px;font-size:11px;border:1px solid #E24B4A;border-radius:5px;cursor:pointer;background:transparent;color:#E24B4A;display:inline-flex;align-items:center;gap:3px;white-space:nowrap;font-family:inherit}
+.delbtn:hover{background:#FCEBEB}
+.file-info{display:flex;align-items:center;gap:8px;padding:8px 12px;background:#f4f4f2;border-radius:8px;font-size:13px}
+.remap-note{font-size:11px;color:#854F0B;background:#FAEEDA;border-radius:4px;padding:1px 6px;margin-left:4px}
+.save-ok{font-size:12px;color:#1D9E75;display:flex;align-items:center;gap:4px}
+.empty{text-align:center;padding:4rem;color:#aaa;font-size:14px}
+.fn{font-size:11px;color:#aaa;margin-top:3px}
+.legend{display:flex;flex-wrap:wrap;gap:10px;font-size:12px;color:#888;margin-top:5px}
+.legend-item{display:flex;align-items:center;gap:5px}
+.ldot{width:10px;height:10px;border-radius:2px;flex-shrink:0}
+.spinner{display:inline-block;width:12px;height:12px;border:2px solid currentColor;border-top-color:transparent;border-radius:50%;animation:spin .6s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="header">
+    <div>
+      <div class="title">📊 Sales Performance Report</div>
+      <div class="subtitle">GREE Mexico · Roster & targets are per-month · Branch total on top</div>
+    </div>
+    <div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px">
+      <div id="file-status"></div>
+      <div id="sync-status" class="sync-status loading"><span class="spinner"></span> Connecting…</div>
+    </div>
+  </div>
+
+  <div class="tabs">
+    <button class="tab active" onclick="switchTab('report')">Report</button>
+    <button class="tab" onclick="switchTab('summary')">Branch Summary</button>
+    <button class="tab" onclick="switchTab('targets')">Target Setup</button>
+    <button class="tab" onclick="switchTab('upload')">Upload Data</button>
+  </div>
+
+  <div id="tab-summary" style="display:none">
+    <div class="filters">
+      <div class="fg"><div class="fl">Month</div><select id="sum-month" onchange="renderSummary()"><option>—</option></select></div>
+      <div class="fg">
+        <div class="fl" style="opacity:0">x</div>
+        <div class="toggle-row"><label class="toggle"><input type="checkbox" id="sumExcDel" onchange="renderSummary()" checked><span class="slider"></span></label><span>Exclude Deleted</span></div>
+        <div class="fn">ERP Order Status = Deleted</div>
+      </div>
+      <div class="fg">
+        <div class="fl" style="opacity:0">x</div>
+        <div class="toggle-row"><label class="toggle"><input type="checkbox" id="sumExcLS" onchange="renderSummary()" checked><span class="slider"></span></label><span>Exclude Lock Stock</span></div>
+        <div class="fn">Order Type = Lock Stock Order</div>
+      </div>
+      <div class="fg">
+        <div class="fl" style="opacity:0">x</div>
+        <div class="toggle-row"><label class="toggle"><input type="checkbox" id="sumExcNE" onchange="renderSummary()"><span class="slider"></span></label><span>Exclude Not-Exist</span></div>
+        <div class="fn">ERP Order Status = Not-Exist</div>
+      </div>
+
+      <div class="fg">
+        <div class="fl" style="opacity:0">x</div>
+        <button class="btn blue" id="sum-png-btn" onclick="exportSummaryPNG()">🖼 Export PNG</button>
+      </div>
+      <div class="fg">
+        <div class="fl" style="opacity:0">x</div>
+        <button class="btn" onclick="exportSummaryCSV()">📄 Export CSV</button>
+      </div>
+    </div>
+    <div id="summary-body"><div class="empty">📋 Upload data and select a month to view branch summary</div></div>
+  </div>
+
+  <div id="tab-upload">
+    <div class="card">
+      <div style="font-size:15px;font-weight:600;margin-bottom:4px">Upload Sales Order Report</div>
+      <div style="font-size:13px;color:#888;margin-bottom:16px">Excel with "Sales Order" and "Detail Sales Order" sheets</div>
+      <div class="upload-zone" id="drop-zone" onclick="document.getElementById('fi').click()">
+        <div style="font-size:2.5rem;margin-bottom:10px">📂</div>
+        <div style="font-size:15px;font-weight:500;margin-bottom:4px">Click to upload or drag & drop</div>
+        <div style="font-size:13px;color:#888">Sales_Order_Report.xlsx</div>
+      </div>
+      <input type="file" id="fi" accept=".xlsx,.xls" style="display:none" onchange="handleFile(this)">
+    </div>
+    <div id="upload-result"></div>
+
+    <div class="card">
+      <div style="font-size:15px;font-weight:600;margin-bottom:4px">Upload Customer Basic Info <span class="badge blue" style="margin-left:4px">for L&amp;CAC Cus</span></div>
+      <div style="font-size:13px;color:#888;margin-bottom:16px">Excel with columns <strong>Customer Name</strong> and <strong>First Cooperate Date</strong>. Needed to compute new-customer development.</div>
+      <div class="upload-zone" id="drop-zone2" onclick="document.getElementById('fi2').click()">
+        <div style="font-size:2.5rem;margin-bottom:10px">👥</div>
+        <div style="font-size:15px;font-weight:500;margin-bottom:4px">Click to upload or drag &amp; drop</div>
+        <div style="font-size:13px;color:#888">Customer_Basic_Info.xlsx</div>
+      </div>
+      <input type="file" id="fi2" accept=".xlsx,.xls" style="display:none" onchange="handleCustFile(this)">
+      <div id="cust-result" style="margin-top:12px"></div>
+    </div>
+  </div>
+
+  <div id="tab-targets" style="display:none">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1rem;flex-wrap:wrap;gap:8px">
+      <div>
+        <div style="font-size:15px;font-weight:600">Target Setup</div>
+        <div class="legend">
+          <div class="legend-item"><div class="ldot" style="background:rgba(55,138,221,0.2)"></div>Dept total (auto sum)</div>
+          <div class="legend-item"><div class="ldot" style="background:rgba(29,158,117,0.15)"></div>👑 Manager / group lead (target optional)</div>
+          <div class="legend-item"><div class="ldot" style="background:rgba(29,158,117,0.10)"></div>Group subtotal (type a Group name to split a dept)</div>
+          <div class="legend-item">⠿ Drag to reorder · Drag column edges to resize</div>
+          <div class="legend-item" style="color:#854F0B;background:#FAEEDA;padding:2px 8px;border-radius:4px">📅 Roster &amp; targets are independent per month</div>
+        </div>
+      </div>
+      <div style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap">
+        <div class="fg">
+          <div class="fl">Month</div>
+          <div style="display:flex;gap:6px;align-items:center">
+            <select id="target-year" style="width:80px" onchange="onTargetMonthChange()">
+              <option>2024</option><option>2025</option><option selected>2026</option><option>2027</option>
+            </select>
+            <select id="target-mon" style="width:100px" onchange="onTargetMonthChange()">
+              <option value="01">January</option><option value="02">February</option><option value="03">March</option>
+              <option value="04">April</option><option value="05" selected>May</option><option value="06">June</option>
+              <option value="07">July</option><option value="08">August</option><option value="09">September</option>
+              <option value="10">October</option><option value="11">November</option><option value="12">December</option>
+            </select>
+          </div>
+        </div>
+        <button class="btn green" id="save-btn" onclick="saveAll()">☁️ Save to Cloud</button>
+      </div>
+    </div>
+    <div id="dim-editor"></div>
+    <div id="unified-editor"><div class="empty"><span class="spinner" style="width:18px;height:18px;border-width:3px"></span><br><br>Loading from Google Sheets…</div></div>
+    <button class="btn" style="width:100%;justify-content:center;margin-bottom:1rem" onclick="addBranch()">🏢 Add branch</button>
+    <div id="save-msg"></div>
+  </div>
+
+  <div id="tab-report" style="display:none">
+    <div class="filters">
+      <div class="fg"><div class="fl">Month</div><select id="filter-month" onchange="syncBD();renderReport()"><option>—</option></select></div>
+      <div class="fg"><div class="fl">Branch</div><select id="filter-branch" onchange="renderReport()"></select></div>
+      <div class="fg">
+        <div class="fl" style="opacity:0">x</div>
+        <div class="toggle-row"><label class="toggle"><input type="checkbox" id="excDel" onchange="renderReport()" checked><span class="slider"></span></label><span>Exclude Deleted</span></div>
+        <div class="fn">ERP Order Status = Deleted</div>
+      </div>
+      <div class="fg">
+        <div class="fl" style="opacity:0">x</div>
+        <div class="toggle-row"><label class="toggle"><input type="checkbox" id="excLS" onchange="renderReport()" checked><span class="slider"></span></label><span>Exclude Lock Stock</span></div>
+        <div class="fn">Order Type = Lock Stock Order</div>
+      </div>
+      <div class="fg">
+        <div class="fl" style="opacity:0">x</div>
+        <div class="toggle-row"><label class="toggle"><input type="checkbox" id="excNE" onchange="renderReport()"><span class="slider"></span></label><span>Exclude Not-Exist</span></div>
+        <div class="fn">ERP Order Status = Not-Exist</div>
+      </div>
+
+    </div>
+    <div id="report-body"><div class="empty">📋 Upload data and select filters to view report</div></div>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+<script>
+'use strict';
+
+const GS_URL = 'https://script.google.com/macros/s/AKfycbyVug4IbhJ8IhVQySo2dZCHxlXlgCLhOAHeJYyZW6BA5HzKQhRam1uJ_L6t8AlDBxZU/exec';
+const LINES = ['RAC','LAC','CAC'];
+const CWK = 'sales_col_widths_v1';
+
+const DEF_ROSTER = [
+  {branch:'Mexico City Branch',people:[
+    {id:'MGR',name:'Gesi Tian',isManager:true},
+    {id:'MX250024',name:'Gabriela Chavez Perez',isManager:false},
+    {id:'MX250027',name:'Norka Yamile Aranda UC',isManager:false},
+    {id:'MX260007',name:'Adrian Cabrera Ramirez',isManager:false},
+    {id:'MX260008',name:'Ahumada Armenta Hugo Armando',isManager:false},
+    {id:'MX260009',name:'Artiguez Utrera Maria del Rosario',isManager:false}
+  ]},
+  {branch:'Monterrey Branch',people:[
+    {id:'MGR',name:'Branch Manager',isManager:true},
+    {id:'MX250022',name:'Olam Yhoshua Arriaga Segovia',isManager:false},
+    {id:'MX260015',name:'Daniel de La Torre Gonzalez',isManager:false}
+  ]},
+  {branch:'Project Dept',people:[
+    {id:'MX250006',name:'Sebastián',isManager:true,group:'Group A'},
+    {id:'MX250025',name:'Miguel Angel Heredia Marquez',isManager:false,group:'Group A'},
+    {id:'MGR-B',name:'Jeffery',isManager:true,group:'Group B'},
+    {id:'MX250026',name:'Noemi Marina Alvarez Moreno',isManager:false,group:'Group B'},
+    {id:'MX260003',name:'Maria de Los Angeles de Haro Grimaldo',isManager:false,group:'Group B'}
+  ]}
+];
+
+// cloudRosters: { "2026-05": [...branches], "2026-04": [...branches], ... }
+// cloudTargets: { "2026-05": { branchName: { empId: { RAC, LAC, CAC } } }, ... }
+let cloudRosters = {};   // per-month rosters (replaces global roster)
+let cloudTargets = {};
+let salesData = null, detailData = null;
+let cw = loadCW();
+let dragSrc=null,dragBi=null,dragPi=null,resizing=null;
+
+// Get roster for a specific month; returns deep clone so mutations are explicit
+function getRosterForMonth(month){
+  if(cloudRosters[month]) return JSON.parse(JSON.stringify(cloudRosters[month]));
+  // No roster for this month yet — return null (caller handles prompt)
+  return null;
+}
+
+// Get the most recent available roster (for computeP fallback when no roster for that month)
+function getLatestRoster(){
+  const months = Object.keys(cloudRosters).sort().reverse();
+  if(months.length) return JSON.parse(JSON.stringify(cloudRosters[months[0]]));
+  return JSON.parse(JSON.stringify(DEF_ROSTER));
+}
+
+// Walk backwards from the month BEFORE `month` to find the nearest available roster.
+// Returns { roster, label } — label is the month string found, or 'default'.
+function getPrevRoster(month){
+  const[y,m]=month.split('-').map(Number);
+  for(let i=1;i<=24;i++){
+    const d=new Date(y,m-1-i,1);
+    const key=d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0');
+    if(cloudRosters[key]) return{roster:JSON.parse(JSON.stringify(cloudRosters[key])),label:key};
+  }
+  return{roster:JSON.parse(JSON.stringify(DEF_ROSTER)),label:'default'};
+}
+
+// The currently-edited month's roster (live, mutated by editor)
+let editorRoster = [];
+
+function loadCW(){try{return JSON.parse(localStorage.getItem(CWK)||'{}');}catch{return {};}}
+function saveCW(){localStorage.setItem(CWK,JSON.stringify(cw));}
+function gcw(bi,col,def){return cw[bi+'_'+col]||def;}
+function setcw(bi,col,v){cw[bi+'_'+col]=v;}
+function esc(s){return String(s||'').replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+function fmtAmt(v){return Number(v).toLocaleString('es-MX',{minimumFractionDigits:2,maximumFractionDigits:2});}
+function fmtNum(v,l){return l==='RAC'?Number(v).toFixed(0):fmtAmt(v);}
+
+// ── Groups (sub-teams within a branch) ─────────────────────────
+// A person may carry an optional `group` string. A branch with any grouped
+// person renders as sections (group subtotal + members) in Report & Target
+// Setup; Branch Summary always aggregates flat (one row per branch).
+function branchHasGroups(people){return people.some(p=>(p.group||'').trim());}
+function groupPeople(people){
+  const order=[],map={};
+  people.forEach((p,pi)=>{
+    const g=(p.group||'').trim();
+    if(!(g in map)){map[g]=[];order.push(g);}
+    map[g].push({p,pi});
+  });
+  return order.map(g=>({key:g,label:g||'(No group)',people:map[g]}));
+}
+
+// ── Metric schema (per-month, editable target dimensions) ──────
+// Each month can define its own list of target columns ("dimensions").
+// A metric = {key,label,unit,src}.  unit: 'qty'|'amt'.  src decides how
+// progress is computed from a person's sales:
+//   RAC / LAC / CAC  → that product line
+//   LAC+CAC          → LAC and CAC merged
+//   CUST             → new-customer count (progress logic defined later → shows pending)
+const SRC_OPTIONS=[
+  {v:'RAC',label:'RAC'},
+  {v:'LAC',label:'LAC'},
+  {v:'CAC',label:'CAC'},
+  {v:'LAC+CAC',label:'LAC+CAC (merged)'},
+  {v:'CUST',label:'New L&CAC customers (count)'}
+];
+const DEFAULT_SCHEMA=[
+  {key:'RAC',label:'RAC',unit:'qty',src:'RAC'},
+  {key:'LAC',label:'LAC',unit:'amt',src:'LAC'},
+  {key:'CAC',label:'CAC',unit:'amt',src:'CAC'}
+];
+let cloudSchemas={};   // { "2026-07":[{key,label,unit,src},...], ... }
+function getSchema(month){const s=cloudSchemas[month];return(Array.isArray(s)&&s.length)?s:DEFAULT_SCHEMA.map(m=>({...m}));}
+function ensureSchema(month){if(!Array.isArray(cloudSchemas[month])||!cloudSchemas[month].length)cloudSchemas[month]=getSchema(month).map(m=>({...m}));return cloudSchemas[month];}
+function fmtByUnit(v,u){return u==='qty'?Number(v).toFixed(0):fmtAmt(v);}
+function makeMetricKey(schema){let i=1,k;do{k='M'+i;i++;}while(schema.some(m=>m.key===k));return k;}
+// Progress value of a metric for one person's prog. null = computation pending.
+function metricProg(pr,m){
+  if(!pr)return m.src==='CUST'?null:0;
+  switch(m.src){
+    case 'RAC':return m.unit==='amt'?(pr.RAC_amt||0):(pr.RAC||0);
+    case 'LAC':return m.unit==='amt'?(pr.LAC||0):(pr.LAC_qty||0);
+    case 'CAC':return m.unit==='amt'?(pr.CAC||0):(pr.CAC_qty||0);
+    case 'LAC+CAC':return m.unit==='amt'?((pr.LAC||0)+(pr.CAC||0)):((pr.LAC_qty||0)+(pr.CAC_qty||0));
+    case 'CUST':return custInfoLoaded?(pr._newCusts?pr._newCusts.size:0):null; // new valid L&CAC customers this month
+    default:return 0;
+  }
+}
+// Branch Summary keeps fixed RAC/LAC/CAC target columns; map them from the
+// month's schema by src (so a month with only a merged L&CAC target leaves
+// LAC & CAC target columns blank).
+function summaryTargetOf(schema,t,line){const unit=line==='RAC'?'qty':'amt';let sum=0,found=false;schema.forEach(m=>{if(m.src===line&&m.unit===unit){sum+=(parseFloat(t[m.key])||0);found=true;}});return found?sum:0;}
+
+// ── Customer Basic Info (for L&CAC Cus = new valid customer development) ──
+// custFirstMonth: normalized Customer Name → "YYYY-MM" of First Cooperate Date.
+let custFirstMonth={};
+let custInfoLoaded=false;
+function normCust(s){return String(s||'').trim().toUpperCase().replace(/\s+/g,' ');}
+function ymOf(v){if(v==null)return'';const s=String(v).trim();let m=s.match(/(\d{4})-(\d{1,2})/);if(m)return m[1]+'-'+String(m[2]).padStart(2,'0');m=s.match(/(\d{1,2})[\/-](\d{1,2})[\/-](\d{4})/);if(m)return m[3]+'-'+String(m[2]).padStart(2,'0');return'';}
+
+// ── Google Sheets API (GET only — avoids CORS) ────────────────
+// All reads and writes go through GET requests using JSONP-style fetch.
+// Apps Script returns JSON for both read (?action=get) and write (?action=set&key=...&value=...)
+
+async function gsGet(){
+  const url = GS_URL + '?action=get&t=' + Date.now();
+  const res = await fetch(url);
+  if(!res.ok) throw new Error('HTTP ' + res.status);
+  const json = await res.json();
+  return json.data || {};
+}
+
+async function gsSet(key, value){
+  // Use no-cors mode to avoid preflight — Apps Script doesn't support OPTIONS
+  await fetch(GS_URL, {
+    method: 'POST',
+    mode: 'no-cors',
+    headers: {'Content-Type': 'text/plain'},
+    body: JSON.stringify({key, value})
+  });
+  // no-cors returns opaque response — can't read status, assume success
+}
+
+function setSyncStatus(state, msg){
+  const el = document.getElementById('sync-status');
+  el.className = 'sync-status ' + state;
+  const icon = state==='loading' ? `<span class="spinner"></span>` : state==='ok' ? '☁️' : '⚠️';
+  el.innerHTML = icon + ' ' + msg;
+}
+
+async function loadFromCloud(){
+  setSyncStatus('loading', 'Loading…');
+  try{
+    const data = await gsGet();
+    if(data.rosters && typeof data.rosters === 'object') cloudRosters = data.rosters;
+    // backward-compat: if old single 'roster' key exists and no rosters yet, migrate it
+    if(!Object.keys(cloudRosters).length && data.roster && Array.isArray(data.roster)){
+      const today = new Date();
+      const m = today.getFullYear()+'-'+String(today.getMonth()+1).padStart(2,'0');
+      cloudRosters[m] = data.roster;
+    }
+    if(data.targets && typeof data.targets === 'object') cloudTargets = data.targets;
+    if(data.schemas && typeof data.schemas === 'object') cloudSchemas = data.schemas;
+    setSyncStatus('ok', 'Cloud sync OK');
+    // Auto-set target month selector to the latest month that has roster data
+    const rosterMonths=Object.keys(cloudRosters).sort().reverse();
+    if(rosterMonths.length){
+      const [ry,rm]=rosterMonths[0].split('-');
+      document.getElementById('target-year').value=ry;
+      document.getElementById('target-mon').value=rm;
+      editorMonth='';
+    }
+    syncBD();
+    if(document.getElementById('tab-targets').style.display !== 'none') renderEditor();
+    if(document.getElementById('tab-report').style.display !== 'none') renderReport();
+  }catch(e){
+    setSyncStatus('err', 'Cloud unavailable — offline mode');
+    console.warn('Cloud load failed:', e);
+    syncBD();
+    if(document.getElementById('tab-targets').style.display !== 'none') renderEditor();
+  }
+}
+
+async function saveAll(){
+  const month=getTargetMonth();
+  if(!month){alert('Please select a month first.');return;}
+
+  // Flush DOM text edits into editorRoster (use explicit classes — the name
+  // cell now also contains an ID and a Group input, so positional lookup is unsafe)
+  document.querySelectorAll('.person-row').forEach(row=>{
+    const bi=+row.dataset.bi,pi=+row.dataset.pi;
+    if(!editorRoster[bi]||!editorRoster[bi].people[pi]) return;
+    const idEl=row.querySelector('.pid-in'),nEl=row.querySelector('.pname-in');
+    if(idEl) editorRoster[bi].people[pi].id=idEl.value;
+    if(nEl) editorRoster[bi].people[pi].name=nEl.value;
+  });
+
+  // Save current editor roster to this month
+  cloudRosters[month] = JSON.parse(JSON.stringify(editorRoster));
+
+  // Collect targets from DOM (keyed by metric key of this month's schema)
+  if(!cloudTargets[month]) cloudTargets[month]={};
+  document.querySelectorAll('.target-input').forEach(inp=>{
+    const{branch,empid,mkey}=inp.dataset;
+    if(!cloudTargets[month][branch]) cloudTargets[month][branch]={};
+    if(!cloudTargets[month][branch][empid]) cloudTargets[month][branch][empid]={};
+    cloudTargets[month][branch][empid][mkey]=parseFloat(inp.value)||0;
+  });
+
+  const btn=document.getElementById('save-btn');
+  const orig=btn.innerHTML;
+  btn.disabled=true;
+  btn.innerHTML='<span class="spinner"></span> Saving…';
+  setSyncStatus('loading','Saving to Google Sheets…');
+
+  try{
+    await gsSet('rosters', cloudRosters);
+    await gsSet('targets', cloudTargets);
+    await gsSet('schemas', cloudSchemas);
+    setSyncStatus('ok', 'Saved ✓  ' + new Date().toLocaleTimeString());
+    syncBD();
+    const msg=document.getElementById('save-msg');
+    msg.innerHTML=`<div class="save-ok">✅ Saved to Google Sheets — ${month}</div>`;
+    setTimeout(()=>msg.innerHTML='',4000);
+  }catch(e){
+    setSyncStatus('err','Save failed — check connection');
+    alert('Save failed: ' + e.message + '\n\nMake sure the Apps Script was re-deployed after updating the code.');
+  }finally{
+    btn.disabled=false;
+    btn.innerHTML=orig;
+  }
+}
+
+// ── Tabs ───────────────────────────────────────────────────────
+function switchTab(t){
+  ['report','summary','targets','upload'].forEach((n,i)=>{
+    document.getElementById('tab-'+n).style.display=n===t?'':'none';
+    document.querySelectorAll('.tab')[i].classList.toggle('active',n===t);
+  });
+  if(t==='targets') renderEditor();
+  if(t==='report'){syncBD();renderReport();}
+  if(t==='summary'){syncSumMonths();renderSummary();}
+}
+switchTab('upload');
+
+// ── syncBD: populate Branch dropdown from current month's roster ──
+function syncBD(){
+  const month=document.getElementById('filter-month').value||'';
+  const r=month&&cloudRosters[month]?cloudRosters[month]:(getLatestRoster());
+  const sel=document.getElementById('filter-branch');
+  const cur=sel.value;
+  sel.innerHTML=r.map(b=>`<option value="${esc(b.branch)}">${esc(b.branch)}</option>`).join('');
+  if(cur&&r.find(b=>b.branch===cur))sel.value=cur;
+}
+
+// ── File upload ────────────────────────────────────────────────
+function handleFile(inp){
+  const f=inp.files[0];if(!f)return;
+  const rd=new FileReader();
+  rd.onload=e=>{
+    try{
+      const wb=XLSX.read(new Uint8Array(e.target.result),{type:'array'});
+      const s1=wb.SheetNames.find(n=>n.toLowerCase().includes('sales order')&&!n.toLowerCase().includes('detail'));
+      const s2=wb.SheetNames.find(n=>n.toLowerCase().includes('detail'));
+      if(!s1||!s2){alert('Cannot find required sheets.');return;}
+      salesData=XLSX.utils.sheet_to_json(wb.Sheets[s1]);
+      detailData=XLSX.utils.sheet_to_json(wb.Sheets[s2]);
+      populateMonths();
+      document.getElementById('file-status').innerHTML=`<div class="file-info">✅ <span>${f.name}</span><span class="badge green">${salesData.length} orders</span></div>`;
+      document.getElementById('upload-result').innerHTML=`<div class="card"><div style="font-size:14px;font-weight:600;color:#1D9E75;margin-bottom:8px">✅ File loaded</div><div style="font-size:13px;color:#888">Sales Order: <strong>${salesData.length}</strong> rows &nbsp;|&nbsp; Detail: <strong>${detailData.length}</strong> rows</div><div style="margin-top:12px"><button class="btn primary" onclick="switchTab('report')">View Report →</button></div></div>`;
+    }catch(err){alert('Error: '+err.message);}
+  };
+  rd.readAsArrayBuffer(f);
+}
+const dz=document.getElementById('drop-zone');
+dz.addEventListener('dragover',e=>{e.preventDefault();dz.classList.add('drag')});
+dz.addEventListener('dragleave',()=>dz.classList.remove('drag'));
+dz.addEventListener('drop',e=>{e.preventDefault();dz.classList.remove('drag');const f=e.dataTransfer.files[0];if(f){const i=document.getElementById('fi');const dt=new DataTransfer();dt.items.add(f);i.files=dt.files;handleFile(i);}});
+
+// ── Customer Basic Info upload (for L&CAC Cus) ─────────────────
+function handleCustFile(inp){
+  const f=inp.files[0];if(!f)return;
+  const rd=new FileReader();
+  rd.onload=e=>{
+    try{
+      const wb=XLSX.read(new Uint8Array(e.target.result),{type:'array'});
+      let nameI=-1,fcdI=-1,hdrRow=-1,rows=null,sheetName='';
+      // Scan sheets for a header row containing both Customer Name & First Cooperate Date
+      for(const sn of wb.SheetNames){
+        const aoa=XLSX.utils.sheet_to_json(wb.Sheets[sn],{header:1,defval:''});
+        for(let r=0;r<Math.min(aoa.length,15);r++){
+          const row=aoa[r].map(c=>String(c||'').trim());
+          const ni=row.indexOf('Customer Name'),fi=row.indexOf('First Cooperate Date');
+          if(ni>=0&&fi>=0){nameI=ni;fcdI=fi;hdrRow=r;rows=aoa;sheetName=sn;break;}
+        }
+        if(hdrRow>=0)break;
+      }
+      if(hdrRow<0){alert('Could not find columns "Customer Name" and "First Cooperate Date" in this file.');return;}
+      custFirstMonth={};let n=0,withDate=0;
+      for(let r=hdrRow+1;r<rows.length;r++){
+        const nm=normCust(rows[r][nameI]);if(!nm)continue;n++;
+        const ym=ymOf(rows[r][fcdI]);if(ym){custFirstMonth[nm]=ym;withDate++;}
+      }
+      custInfoLoaded=true;
+      document.getElementById('cust-result').innerHTML=`<div class="save-ok">✅ ${f.name} — <strong>${n}</strong> customers (<strong>${withDate}</strong> with First Cooperate Date). L&amp;CAC Cus is now computed.</div>`;
+      document.getElementById('file-status2') && (document.getElementById('file-status2').innerHTML='');
+      if(document.getElementById('tab-report').style.display!=='none') renderReport();
+      if(document.getElementById('tab-summary').style.display!=='none') renderSummary();
+    }catch(err){alert('Error reading Customer Basic Info: '+err.message);}
+  };
+  rd.readAsArrayBuffer(f);
+}
+const dz2=document.getElementById('drop-zone2');
+if(dz2){
+  dz2.addEventListener('dragover',e=>{e.preventDefault();dz2.classList.add('drag')});
+  dz2.addEventListener('dragleave',()=>dz2.classList.remove('drag'));
+  dz2.addEventListener('drop',e=>{e.preventDefault();dz2.classList.remove('drag');const f=e.dataTransfer.files[0];if(f){const i=document.getElementById('fi2');const dt=new DataTransfer();dt.items.add(f);i.files=dt.files;handleCustFile(i);}});
+}
+
+function getMonth(r){const d=r['Order Date']||'';const m=String(d).match(/(\d{4})-(\d{2})/)||String(d).match(/(\d{2})-(\d{2})-(\d{4})/);if(!m)return'';return String(d).match(/^\d{2}-\d{2}-\d{4}$/)?m[3]+'-'+m[2]:m[1]+'-'+m[2];}
+function getPL(c){if(!c)return'';const s=String(c);if(s.length>=5){const pl=s.slice(2,5);if(LINES.includes(pl))return pl;}return'';}
+function populateMonths(){
+  if(!salesData)return;
+  const ms=[...new Set(salesData.map(getMonth).filter(Boolean))].sort().reverse();
+  document.getElementById('filter-month').innerHTML=ms.map(m=>`<option value="${m}">${m}</option>`).join('');
+  document.getElementById('sum-month').innerHTML=ms.map(m=>`<option value="${m}">${m}</option>`).join('');
+  syncBD();
+}
+
+// ── Auto-sum ───────────────────────────────────────────────────
+function refreshSum(bi){
+  const branch={},bu={},groups={},gu={};
+  document.querySelectorAll(`.target-input[data-bi="${bi}"]`).forEach(i=>{
+    const k=i.dataset.mkey,v=parseFloat(i.value)||0,u=i.dataset.unit;
+    branch[k]=(branch[k]||0)+v;bu[k]=u;
+    const gi=i.dataset.gi;
+    if(gi!==undefined&&gi!==''){(groups[gi]=groups[gi]||{})[k]=((groups[gi]&&groups[gi][k])||0)+v;(gu[gi]=gu[gi]||{})[k]=u;}
+  });
+  Object.keys(branch).forEach(k=>{const el=document.getElementById(`sum-${bi}-${k}`);if(el)el.textContent=branch[k]?fmtByUnit(branch[k],bu[k]):'—';});
+  Object.keys(groups).forEach(gi=>Object.keys(groups[gi]).forEach(k=>{const el=document.getElementById(`gsum-${bi}-${gi}-${k}`);if(el)el.textContent=groups[gi][k]?fmtByUnit(groups[gi][k],gu[gi][k]):'—';}));
+}
+
+// ── Editor ─────────────────────────────────────────────────────
+let editorMonth = '';  // tracks which month is currently loaded into editorRoster
+
+function loadEditorRoster(month){
+  // Only resets editorRoster when month actually changes
+  if(!cloudRosters[month]) return false;
+  editorRoster = JSON.parse(JSON.stringify(cloudRosters[month]));
+  editorMonth = month;
+  return true;
+}
+
+function renderEditor(){
+  const month=getTargetMonth();
+  if(!month) return;
+
+  // If roster already exists for this month, show editor
+  if(cloudRosters[month]){
+    if(editorMonth !== month) loadEditorRoster(month);
+    const mt=cloudTargets[month]||{};
+    const schema=getSchema(month);
+    renderDimEditor(month);
+    document.getElementById('unified-editor').innerHTML=editorRoster.map((b,bi)=>{
+      const wd=gcw(bi,'drag',22),wi=gcw(bi,'id',80),wn=gcw(bi,'name',260),wx=gcw(bi,'del',28);
+      const mw=m=>gcw(bi,m.key,96);
+      const initSum={};
+      b.people.forEach(p=>{const sv=(mt[b.branch]&&mt[b.branch][p.id])||{};schema.forEach(m=>initSum[m.key]=(initSum[m.key]||0)+(parseFloat(sv[m.key])||0));});
+      const sumRow=`<tr class="tr-sum"><td></td><td class="sum-label" colspan="2">∑ ${esc(b.branch)} Total Target</td>${schema.map(m=>`<td class="sum-val" id="sum-${bi}-${m.key}">${initSum[m.key]?fmtByUnit(initSum[m.key],m.unit):'—'}</td>`).join('')}<td></td></tr>`;
+      const personRow=(p,pi,gi)=>{
+        const isMgr=p.isManager;
+        const sv=(mt[b.branch]&&mt[b.branch][p.id])||{};
+        const tc=schema.map(m=>`<td><input class="ri num target-input" type="number" data-bi="${bi}" data-gi="${gi==null?'':gi}" data-branch="${esc(b.branch)}" data-empid="${esc(p.id)}" data-mkey="${esc(m.key)}" data-unit="${m.unit}" value="${sv[m.key]||''}" placeholder="—" oninput="refreshSum(${bi})"></td>`).join('');
+        return `<tr class="person-row${isMgr?' tr-mgr':''}" data-bi="${bi}" data-pi="${pi}" draggable="true">
+          <td style="width:${wd}px;text-align:center;padding:3px 2px"><span class="dh">⠿</span></td>
+          <td style="width:${wi}px"><input class="ri pid-in" type="text" value="${esc(p.id)}" placeholder="ID" onchange="editorRoster[${bi}].people[${pi}].id=this.value"></td>
+          <td style="width:${wn}px"><div style="display:flex;align-items:center;gap:3px;min-width:0"><button class="lead-toggle${isMgr?' on':''}" title="Set as group lead / manager (target optional)" onclick="toggleLead(${bi},${pi})">👑</button><input class="ri grp-in" type="text" value="${esc(p.group||'')}" placeholder="Group" title="Group name (blank = none)" onchange="setGroup(${bi},${pi},this.value)"><input class="ri pname-in" type="text" value="${esc(p.name)}" placeholder="Name" onchange="editorRoster[${bi}].people[${pi}].name=this.value" style="flex:1;min-width:0"></div></td>
+          ${tc}
+          <td style="width:${wx}px;text-align:center;padding:3px 2px"><button class="delbtn" onclick="removePerson(${bi},${pi})">🗑</button></td>
+        </tr>`;
+      };
+      let rows='';
+      if(branchHasGroups(b.people)){
+        groupPeople(b.people).forEach((g,gi)=>{
+          if(g.key){
+            const gs={};
+            g.people.forEach(({p})=>{const sv=(mt[b.branch]&&mt[b.branch][p.id])||{};schema.forEach(m=>gs[m.key]=(gs[m.key]||0)+(parseFloat(sv[m.key])||0));});
+            rows+=`<tr class="tr-gsum"><td></td><td class="gsum-label" colspan="2">◆ ${esc(g.key)} Subtotal</td>${schema.map(m=>`<td class="gsum-val" id="gsum-${bi}-${gi}-${m.key}">${gs[m.key]?fmtByUnit(gs[m.key],m.unit):'—'}</td>`).join('')}<td></td></tr>`;
+          }
+          g.people.forEach(({p,pi})=>{rows+=personRow(p,pi,g.key?gi:'');});
+        });
+      }else{
+        rows=b.people.map((p,pi)=>personRow(p,pi,null)).join('');
+      }
+      const addRow=`<tr class="add-row"><td></td><td><input type="text" id="nid-${bi}" placeholder="ID" class="ri" style="border:1px solid #ddd"></td><td colspan="${schema.length+1}"><div style="display:flex;gap:6px;align-items:center"><input type="text" id="nname-${bi}" placeholder="New person…" class="ri" style="flex:1;border:1px solid #ddd"><button class="btn sm" onclick="addPerson(${bi})">+ Add</button></div></td></tr>`;
+      const cols=`<col id="cc-${bi}-drag" style="width:${wd}px"><col id="cc-${bi}-id" style="width:${wi}px"><col id="cc-${bi}-name" style="width:${wn}px">${schema.map(m=>`<col id="cc-${bi}-${esc(m.key)}" style="width:${mw(m)}px">`).join('')}<col id="cc-${bi}-del" style="width:${wx}px">`;
+      const head=`<tr><th></th><th class="lft">ID<span class="col-resize" onmousedown="startR(event,${bi},'id')"></span></th><th class="lft">Name<span class="col-resize" onmousedown="startR(event,${bi},'name')"></span></th>${schema.map(m=>`<th>${esc(m.label)} (${m.unit})<span class="col-resize" onmousedown="startR(event,${bi},'${esc(m.key)}')"></span></th>`).join('')}<th></th></tr>`;
+      return `<div class="bwrap" data-bi="${bi}"><div class="bh"><span style="color:#aaa;font-size:14px;flex-shrink:0">🏢</span><input class="bni" type="text" value="${esc(b.branch)}" onchange="editorRoster[${bi}].branch=this.value.trim()||editorRoster[${bi}].branch" placeholder="Branch name"><button class="delbtn" onclick="removeBranch(${bi})">🗑 Remove</button></div><div class="btw"><table class="etable" id="et-${bi}"><colgroup>${cols}</colgroup><thead>${head}</thead><tbody>${sumRow}${rows}${addRow}</tbody></table></div></div>`;
+    }).join('');
+    attachDrag();
+    return;
+  }
+
+  // No roster for this month — check strictly the previous month only
+  editorMonth = '';
+  { const de=document.getElementById('dim-editor'); if(de) de.innerHTML=''; }
+  const prev = prevMonthStr(month);
+  const hasPrev = !!cloudRosters[prev];
+  document.getElementById('unified-editor').innerHTML = hasPrev ? `
+    <div class="card" style="text-align:center;padding:2.5rem 2rem">
+      <div style="font-size:2rem;margin-bottom:12px">📅</div>
+      <div style="font-size:15px;font-weight:600;margin-bottom:6px">No roster set up for ${month} yet</div>
+      <div style="font-size:13px;color:#888;margin-bottom:20px">Copy from last month's roster to get started.</div>
+      <div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap">
+        <button class="btn primary" onclick="initMonthRoster('${month}')">📋 Copy from ${esc(prev)}</button>
+        <button class="btn" onclick="initMonthRosterBlank('${month}')">✨ Start blank</button>
+      </div>
+    </div>` : `
+    <div class="card" style="text-align:center;padding:2.5rem 2rem">
+      <div style="font-size:2rem;margin-bottom:12px">⚠️</div>
+      <div style="font-size:15px;font-weight:600;margin-bottom:6px;color:#A32D2D">No data for ${month}</div>
+      <div style="font-size:13px;color:#888;margin-bottom:20px">The previous month <strong>${prev}</strong> has no roster. You can start from scratch or set up ${prev} first.</div>
+      <div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap">
+        <button class="btn" onclick="initMonthRosterBlank('${month}')">✨ Start blank</button>
+      </div>
+    </div>`;
+}
+
+function initMonthRoster(month){
+  // Copy strictly from the previous month — caller already verified it exists
+  const prev = prevMonthStr(month);
+  cloudRosters[month] = JSON.parse(JSON.stringify(cloudRosters[prev]));
+  editorMonth = '';
+  renderEditor();
+}
+
+function initMonthRosterBlank(month){
+  cloudRosters[month]=[{branch:'New Branch',people:[{id:'MGR',name:'Branch Manager',isManager:true}]}];
+  editorMonth='';
+  renderEditor();
+}
+
+function initMonthRosterBlank(month){
+  cloudRosters[month]=[{branch:'New Branch',people:[{id:'MGR',name:'Branch Manager',isManager:true}]}];
+  editorMonth='';
+  renderEditor();
+}
+
+function getTargetMonth(){
+  const y=document.getElementById('target-year').value;
+  const m=document.getElementById('target-mon').value;
+  return y && m ? y+'-'+m : '';
+}
+function onTargetMonthChange(){ editorMonth=''; renderEditor(); }
+
+function startR(e,bi,col){e.preventDefault();const colEl=document.getElementById('cc-'+bi+'-'+col);const sx=e.clientX,sw=colEl.offsetWidth;e.target.classList.add('active');resizing={bi,col,colEl,sx,sw,h:e.target};document.addEventListener('mousemove',doR);document.addEventListener('mouseup',stopR);}
+function doR(e){if(!resizing)return;const nw=Math.max(40,resizing.sw+(e.clientX-resizing.sx));resizing.colEl.style.width=nw+'px';setcw(resizing.bi,resizing.col,nw);}
+function stopR(){if(!resizing)return;resizing.h.classList.remove('active');saveCW();resizing=null;document.removeEventListener('mousemove',doR);document.removeEventListener('mouseup',stopR);}
+
+function attachDrag(){
+  document.querySelectorAll('.person-row').forEach(row=>{
+    row.addEventListener('dragstart',e=>{dragSrc=row;dragBi=+row.dataset.bi;dragPi=+row.dataset.pi;row.classList.add('dragging');e.dataTransfer.effectAllowed='move';});
+    row.addEventListener('dragend',()=>{dragSrc=null;document.querySelectorAll('.person-row').forEach(r=>r.classList.remove('dragging','drag-over'));});
+    row.addEventListener('dragover',e=>{e.preventDefault();if(dragSrc&&dragSrc!==row)row.classList.add('drag-over');});
+    row.addEventListener('dragleave',()=>row.classList.remove('drag-over'));
+    row.addEventListener('drop',e=>{e.preventDefault();row.classList.remove('drag-over');if(!dragSrc||dragSrc===row)return;const db=+row.dataset.bi,dp=+row.dataset.pi;if(dragBi!==db)return;const arr=editorRoster[dragBi].people;const[mv]=arr.splice(dragPi,1);arr.splice(dp,0,mv);renderEditor();});
+  });
+}
+
+function removePerson(bi,pi){if(!confirm(`Remove "${editorRoster[bi].people[pi].name}"?`))return;flushEditorTargets();editorRoster[bi].people.splice(pi,1);renderEditor();}
+function removeBranch(bi){if(!confirm(`Remove branch "${editorRoster[bi].branch}"?`))return;editorRoster.splice(bi,1);renderEditor();}
+function addPerson(bi){const idEl=document.getElementById('nid-'+bi),nEl=document.getElementById('nname-'+bi);const name=nEl.value.trim();if(!name){nEl.focus();return;}flushEditorTargets();editorRoster[bi].people.push({id:idEl.value.trim()||'—',name,isManager:false,group:''});idEl.value='';nEl.value='';renderEditor();}
+function addBranch(){editorRoster.push({branch:'New Branch',people:[{id:'MGR',name:'Branch Manager',isManager:true}]});renderEditor();setTimeout(()=>{const w=document.querySelectorAll('.bwrap');if(w.length)w[w.length-1].scrollIntoView({behavior:'smooth'});},50);}
+
+// Flush typed-but-unsaved target inputs into cloudTargets so a re-render
+// (toggle lead / set group / add / remove person) doesn't discard them.
+function flushEditorTargets(){
+  const month=getTargetMonth();if(!month)return;
+  if(!cloudTargets[month])cloudTargets[month]={};
+  document.querySelectorAll('.target-input').forEach(inp=>{
+    const{branch,empid,mkey}=inp.dataset;
+    const v=parseFloat(inp.value);if(isNaN(v))return;
+    if(!cloudTargets[month][branch])cloudTargets[month][branch]={};
+    if(!cloudTargets[month][branch][empid])cloudTargets[month][branch][empid]={};
+    cloudTargets[month][branch][empid][mkey]=v;
+  });
+}
+// Toggle a person as group lead / manager (styled like other depts' managers)
+function toggleLead(bi,pi){flushEditorTargets();editorRoster[bi].people[pi].isManager=!editorRoster[bi].people[pi].isManager;renderEditor();}
+// Assign a person to a group (blank clears it)
+function setGroup(bi,pi,v){flushEditorTargets();editorRoster[bi].people[pi].group=(v||'').trim();renderEditor();}
+
+// ── Dimension (metric schema) editing ──────────────────────────
+function renderDimEditor(month){
+  const host=document.getElementById('dim-editor');if(!host)return;
+  const schema=getSchema(month);
+  const srcSel=(cur,i)=>`<select onchange="setMetric(${i},'src',this.value)" style="font-size:11px;padding:4px 6px">${SRC_OPTIONS.map(o=>`<option value="${o.v}"${o.v===cur?' selected':''}>${o.label}</option>`).join('')}</select>`;
+  const unitSel=(cur,i)=>`<select onchange="setMetric(${i},'unit',this.value)" style="font-size:11px;padding:4px 6px"><option value="qty"${cur==='qty'?' selected':''}>qty</option><option value="amt"${cur==='amt'?' selected':''}>amt</option></select>`;
+  const rows=schema.map((m,i)=>`
+    <div style="display:flex;align-items:center;gap:6px;background:#fff;border:1px solid #e5e5e5;border-radius:8px;padding:6px 8px">
+      <span style="font-size:10px;color:#bbb;width:14px;text-align:center">${i+1}</span>
+      <input type="text" value="${esc(m.label)}" onchange="setMetric(${i},'label',this.value)" placeholder="Column name" style="font-size:12px;width:120px">
+      ${unitSel(m.unit,i)}
+      <span style="font-size:11px;color:#aaa">from</span>
+      ${srcSel(m.src,i)}
+      <button class="delbtn" title="Remove dimension" onclick="removeMetric(${i})" style="padding:2px 6px">🗑</button>
+    </div>`).join('');
+  host.innerHTML=`
+    <div class="card" style="padding:0.9rem 1rem;margin-bottom:1rem">
+      <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:8px">
+        <div>
+          <div style="font-size:13px;font-weight:600">📐 Target dimensions for ${month}${cloudSchemas[month]?'':' <span style="font-size:11px;color:#aaa;font-weight:400">(default)</span>'}</div>
+          <div style="font-size:11px;color:#888;margin-top:2px">These columns drive the Target Setup inputs and this month's department Report. Editable per month.</div>
+        </div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap">
+          <button class="btn sm" onclick="applyPreset('classic')">Preset: RAC / LAC / CAC</button>
+          <button class="btn sm" onclick="applyPreset('merged')">Preset: RAC / L&CAC / L&CAC Cus</button>
+        </div>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:6px">${rows}</div>
+      <button class="btn sm" style="margin-top:8px" onclick="addMetric()">+ Add dimension</button>
+    </div>`;
+}
+function setMetric(i,field,val){const month=getTargetMonth();if(!month)return;flushEditorTargets();const s=ensureSchema(month);if(!s[i])return;s[i][field]=(field==='label'?val:val);renderEditor();}
+function addMetric(){const month=getTargetMonth();if(!month)return;flushEditorTargets();const s=ensureSchema(month);s.push({key:makeMetricKey(s),label:'New',unit:'amt',src:'LAC+CAC'});renderEditor();}
+function removeMetric(i){const month=getTargetMonth();if(!month)return;const s=ensureSchema(month);if(s.length<=1){alert('Keep at least one dimension.');return;}if(!confirm(`Remove dimension "${s[i].label}"?`))return;flushEditorTargets();s.splice(i,1);renderEditor();}
+function applyPreset(name){const month=getTargetMonth();if(!month)return;flushEditorTargets();
+  if(name==='classic')cloudSchemas[month]=[{key:'RAC',label:'RAC',unit:'qty',src:'RAC'},{key:'LAC',label:'LAC',unit:'amt',src:'LAC'},{key:'CAC',label:'CAC',unit:'amt',src:'CAC'}];
+  else if(name==='merged')cloudSchemas[month]=[{key:'RAC',label:'RAC',unit:'qty',src:'RAC'},{key:'LCAC',label:'L&CAC',unit:'amt',src:'LAC+CAC'},{key:'LCAC_CUS',label:'L&CAC Cus',unit:'qty',src:'CUST'}];
+  renderEditor();}
+
+// ── Name matching ──────────────────────────────────────────────
+function buildIdx(r){const idx=[];r.forEach(b=>b.people.forEach(p=>{idx.push({branch:b.branch,isManager:p.isManager,p,words:p.name.toLowerCase().split(/\s+/).filter(w=>w.length>2)});}));return idx;}
+function matchP(dn,idx){if(!dn)return null;const d=dn.toLowerCase().replace(/\s+/g,' ').trim();for(const e of idx){if(e.p.name.toLowerCase()===d)return e;}for(const e of idx){const rn=e.p.name.toLowerCase();if(rn.includes(d)||d.includes(rn))return e;}const dw=d.split(/\s+/).filter(w=>w.length>2);let best=null,bs=1;for(const e of idx){const ov=e.words.filter(w=>dw.includes(w)).length;if(ov>bs){bs=ov;best=e;}}return best;}
+
+// ── Progress ───────────────────────────────────────────────────
+function prevMonthStr(month){
+  // "2026-05" → "2026-04", handles Jan→Dec of prev year
+  const[y,m]=month.split('-').map(Number);
+  const d=new Date(y,m-2,1);
+  return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0');
+}
+
+function computeP(month,bn,excDel,excLS,excNE){
+  // Use the roster for this specific month; fall back to latest available
+  const monthRoster=cloudRosters[month]||cloudRosters[prevMonthStr(month)]||null;
+  if(!monthRoster) return{prog:{},orderCount:0,customerCount:0,remapped:0,bData:null};
+  const bData=monthRoster.find(b=>b.branch===bn);
+  if(!bData)return{prog:{},orderCount:0,customerCount:0,remapped:0,bData:null};
+  const idx=buildIdx(monthRoster);
+  const orders=salesData.filter(r=>{if(getMonth(r)!==month)return false;if(excDel&&r['ERP Order Status']==='Deleted')return false;if(excLS&&r['Order Type']==='Lock Stock Order')return false;if(excNE&&r['ERP Order Status']==='Not-Exist')return false;return true;});
+  const oc=new Set(),opm={};
+  orders.forEach(r=>{const m=matchP(String(r['Salesman']||'').trim(),idx);if(m&&m.branch===bn){oc.add(r['Order Code']);opm[r['Order Code']]=m.p.id;}});
+  // prog: RAC qty+amt, LAC qty+amt, CAC qty+amt, plus per-person customer sets
+  const prog={};bData.people.forEach(p=>prog[p.id]={RAC:0,RAC_amt:0,LAC_qty:0,LAC:0,CAC_qty:0,CAC:0,_custs:new Set(),_ords:0});
+  // Count orders per person
+  Object.values(opm).forEach(id=>{if(prog[id]) prog[id]._ords++;});
+  // Build orderCode → customer map for per-person counting
+  const _oc2cust={};
+  orders.filter(r=>oc.has(r['Order Code'])).forEach(r=>{
+    const c=r['Customer']||r['customer']||r['客户']||'';
+    if(c) _oc2cust[r['Order Code']]=String(c).trim();
+  });
+  detailData.filter(r=>oc.has(r['Order Code'])).forEach(d=>{
+    const key=opm[d['Order Code']];if(!key||!prog[key])return;
+    const pl=getPL(d['Category Code']);if(!pl)return;
+    const qty=parseFloat(d['Quantity'])||0,amt=parseFloat(d['Final Sub Total Without Tax'])||0;
+    if(pl==='RAC'){prog[key].RAC+=qty;prog[key].RAC_amt+=amt;}
+    else if(pl==='LAC'){prog[key].LAC_qty+=qty;prog[key].LAC+=amt;}
+    else if(pl==='CAC'){prog[key].CAC_qty+=qty;prog[key].CAC+=amt;}
+  });
+  // Assign customers to each person based on their orders
+  Object.keys(_oc2cust).forEach(code=>{
+    const key=opm[code];if(key&&prog[key]) prog[key]._custs.add(_oc2cust[code]);
+  });
+  let remapped=0;orders.forEach(r=>{if(oc.has(r['Order Code'])&&r['Branch']!==bn)remapped++;});
+  // Unique customers for this branch's orders, split by product line
+  const customerSet=new Set();
+  const racCustomerSet=new Set();
+  const lacCacCustomerSet=new Set();
+  // Build a map: orderCode → customer name, and orderCode → product lines purchased
+  const orderCustomer={};
+  orders.filter(r=>oc.has(r['Order Code'])).forEach(r=>{
+    const c=r['Customer']||r['customer']||r['客户']||'';
+    if(c) orderCustomer[r['Order Code']]=String(c).trim();
+  });
+  // Walk detail rows to find which product lines each order has
+  const orderLines={};
+  detailData.filter(d=>oc.has(d['Order Code'])).forEach(d=>{
+    const pl=getPL(d['Category Code']);
+    if(!pl) return;
+    if(!orderLines[d['Order Code']]) orderLines[d['Order Code']]={};
+    orderLines[d['Order Code']][pl]=true;
+  });
+  Object.keys(orderCustomer).forEach(code=>{
+    const c=orderCustomer[code];
+    if(!c) return;
+    customerSet.add(c);
+    const lines=orderLines[code]||{};
+    if(lines['RAC']) racCustomerSet.add(c);
+    if(lines['LAC']||lines['CAC']) lacCacCustomerSet.add(c);
+  });
+  // L&CAC Cus — new valid customers this month: attributed customer whose First
+  // Cooperate Date is in this month AND who placed a LAC or CAC order this month.
+  if(custInfoLoaded){
+    bData.people.forEach(p=>{if(prog[p.id])prog[p.id]._newCusts=new Set();});
+    Object.keys(orderCustomer).forEach(code=>{
+      const key=opm[code];if(!key||!prog[key])return;
+      const lines=orderLines[code]||{};
+      if(!(lines['LAC']||lines['CAC']))return; // only L&CAC orders qualify
+      const nc=normCust(orderCustomer[code]);
+      if(nc&&custFirstMonth[nc]===month) prog[key]._newCusts.add(nc);
+    });
+  }
+  return{prog,orderCount:oc.size,customerCount:customerSet.size,racCustomerCount:racCustomerSet.size,lacCacCustomerCount:lacCacCustomerSet.size,remapped,bData};
+}
+
+// ── Report ─────────────────────────────────────────────────────
+function renderReport(){
+  if(!salesData||!detailData){document.getElementById('report-body').innerHTML='<div class="empty">📋 Upload data first</div>';return;}
+  syncBD();  // refresh branch list for this month
+  const month=document.getElementById('filter-month').value;
+  const bn=document.getElementById('filter-branch').value;
+  const excDel=document.getElementById('excDel').checked,excLS=document.getElementById('excLS').checked,excNE=document.getElementById('excNE').checked;
+  if(!month||month==='—'){document.getElementById('report-body').innerHTML='<div class="empty">Select a month</div>';return;}
+  const{prog,orderCount,remapped,bData}=computeP(month,bn,excDel,excLS,excNE);
+  if(!bData){document.getElementById('report-body').innerHTML='<div class="empty">Branch not found</div>';return;}
+  const mt=cloudTargets[month]||{};
+  const schema=getSchema(month);
+  // Metric aggregation helpers (progress null = calculation pending, e.g. CUST)
+  const mTgtSum=(arr,m)=>arr.reduce((a,p)=>a+((((mt[bn]&&mt[bn][p.id])||{})[m.key])||0),0);
+  const mProgSum=(arr,m)=>{if(m.src==='CUST'){if(!custInfoLoaded)return null;const u=new Set();arr.forEach(p=>{const s=(prog[p.id]||{})._newCusts;if(s)s.forEach(c=>u.add(c));});return u.size;}let s=0;arr.forEach(p=>{const v=metricProg(prog[p.id],m);if(v!==null)s+=v;});return s;};
+  const mtgt=(v,m)=>!v?'<td class="num" style="color:#bbb">—</td>':`<td class="num">${fmtByUnit(v,m.unit)}</td>`;
+  const mnum=(v,m)=>v===null?'<td class="num" style="color:#B8860B" title="Upload the Customer Basic Info file (Upload Data tab) to compute L&CAC Cus">⤒ file</td>':(!v?'<td class="num">—</td>':`<td class="num">${fmtByUnit(v,m.unit)}</td>`);
+  const mpct=(p,t)=>{if(p===null||!t)return'<td class="num">—</td>';const r=p/t,c=r>=1?'pct-g':r>=0.5?'pct-m':'pct-b';return`<td class="num ${c}">${(r*100).toFixed(1)}%</td>`;};
+  const mCells=arr=>schema.map(m=>{const tv=mTgtSum(arr,m);const pv=mProgSum(arr,m);return `${mtgt(tv,m)}${mnum(pv,m)}${mpct(pv,tv)}`;}).join('');
+  // Branch-level total customer count (union of all people's sets)
+  const totalCustSet=new Set();bData.people.forEach(p=>{if(prog[p.id])prog[p.id]._custs.forEach(c=>totalCustSet.add(c));});
+  function custCell(n){return n?`<td class="num">${n}</td>`:`<td class="num" style="color:#ccc">—</td>`;}
+  let rows=`<tr class="row-total"><td class="num" style="font-size:11px;color:#888">${month}</td><td class="lft">∑ ${esc(bn)} Total</td>${custCell(orderCount)}${custCell(totalCustSet.size)}${mCells(bData.people)}</tr>`;
+  const personReportRow=p=>{
+    const pr=prog[p.id]||{RAC:0,RAC_amt:0,LAC_qty:0,LAC:0,CAC_qty:0,CAC:0,_custs:new Set()};const t=(mt[bn]&&mt[bn][p.id])||{};
+    const nc=p.isManager
+      ?`<td class="lft" style="padding-left:1.5rem">👑 ${esc(p.name)}${p.group?` <span style="font-size:10px;color:#1D9E75;font-weight:500">· ${esc(p.group)} lead</span>`:''}</td>`
+      :`<td class="lft" style="padding-left:${p.group?'2.4rem':'1.5rem'};font-size:12px"><span style="font-size:10px;color:#bbb;margin-right:4px">${esc(p.id)}</span>${esc(p.name)}</td>`;
+    const cells=schema.map(m=>{const tv=(t[m.key])||0;const pv=metricProg(pr,m);return `${mtgt(tv,m)}${mnum(pv,m)}${mpct(pv,tv)}`;}).join('');
+    return `<tr${p.isManager?' class="row-mgr"':''}><td class="num" style="font-size:11px;color:#888">${month}</td>${nc}${custCell(pr._ords||0)}${custCell(pr._custs?pr._custs.size:0)}${cells}</tr>`;
+  };
+  if(branchHasGroups(bData.people)){
+    groupPeople(bData.people).forEach(g=>{
+      const gpeople=g.people.map(x=>x.p);let gOrds=0;const gCust=new Set();
+      gpeople.forEach(p=>{const pr=prog[p.id]||{};gOrds+=pr._ords||0;if(pr._custs)pr._custs.forEach(c=>gCust.add(c));});
+      if(g.key) rows+=`<tr class="row-group"><td class="num" style="font-size:11px;color:#888">${month}</td><td class="lft">◆ ${esc(g.key)} Subtotal</td>${custCell(gOrds)}${custCell(gCust.size)}${mCells(gpeople)}</tr>`;
+      g.people.slice().sort((a,b2)=>(b2.p.isManager?1:0)-(a.p.isManager?1:0)).forEach(({p})=>rows+=personReportRow(p));
+    });
+  }else{
+    bData.people.forEach(p=>rows+=personReportRow(p));
+  }
+  const fb=[];if(excDel)fb.push('Deleted excluded');if(excLS)fb.push('Lock Stock excluded');if(excNE)fb.push('Not-Exist excluded');
+  const fbadge=fb.length?`<span class="badge amber" style="margin-left:8px">${fb.join(' · ')}</span>`:'';
+  const rnote=remapped>0?`<span class="remap-note" style="margin-left:6px">↕ ${remapped} remapped</span>`:'';
+  document.getElementById('report-body').innerHTML=`
+    <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:12px">
+      <div style="font-size:13px;color:#888;display:flex;align-items:center;flex-wrap:wrap;gap:6px">
+        <strong style="color:#111">${esc(bn)}</strong> · <span class="badge blue">${month}</span>${fbadge}${rnote} · ${orderCount} orders${(schema.some(m=>m.src==='CUST')&&!custInfoLoaded)?' <span class="badge amber" style="margin-left:6px">⤒ Upload Customer Basic Info for L&CAC Cus</span>':''}
+      </div>
+      <div style="display:flex;gap:8px">
+        <button class="btn blue" id="png-btn" onclick="exportPNG()">🖼 Export PNG</button>
+        <button class="btn" onclick="exportCSV()">📄 Export CSV</button>
+      </div>
+    </div>
+    <div id="capture" style="background:#fff;border-radius:10px;border:1px solid #e5e5e5;overflow:hidden">
+      <div style="padding:12px 16px 10px;border-bottom:1px solid #eee;display:flex;align-items:center;justify-content:space-between;background:#fff">
+        <div><div style="font-size:14px;font-weight:600">${esc(bn)} — Sales Performance Report</div><div style="font-size:11px;color:#aaa;margin-top:2px">Month: ${month} · ${new Date().toLocaleDateString('zh-CN')} · ${fb.join(' / ')||'All orders included'}</div></div>
+        <div style="font-size:12px;color:#bbb;font-weight:500">GREE Mexico</div>
+      </div>
+      <div style="overflow-x:auto"><table class="rtable">
+        <thead><tr>
+          <th rowspan="2" style="width:46px">Month</th>
+          <th rowspan="2" style="text-align:left;min-width:200px">${esc(bn)}</th>
+          <th rowspan="2" style="font-size:11px">Orders</th>
+          <th rowspan="2" style="font-size:11px">Cust.</th>
+          ${schema.map((m,i)=>`<th colspan="3" style="background:${['#faf5ec','#ecf3fa','#ecfaf4','#f0eaf8','#eef4fb','#faecec'][i%6]}">${esc(m.label)} (${m.unit==='qty'?'QTY':'AMT'})</th>`).join('')}
+        </tr>
+        <tr>${schema.map(()=>'<th style="font-size:11px">Target</th><th style="font-size:11px">Progress</th><th style="font-size:11px">Achv %</th>').join('')}</tr>
+        </thead><tbody>${rows}</tbody>
+      </table></div>
+    </div>`;
+}
+
+function exportPNG(){
+  const el=document.getElementById('capture');if(!el){alert('No report.');return;}
+  const btn=document.getElementById('png-btn');const orig=btn.innerHTML;
+  btn.innerHTML='⏳ Generating...';btn.disabled=true;
+  const wrapper=el.querySelector('div[style*="overflow-x"]');
+  const table=el.querySelector('table');
+  const prevOverflow=wrapper?wrapper.style.overflowX:'';
+  const prevWidth=el.style.width;
+  const prevMaxWidth=el.style.maxWidth;
+  const fullWidth=table?table.scrollWidth:el.scrollWidth;
+  if(wrapper) wrapper.style.overflowX='visible';
+  el.style.width=fullWidth+'px';
+  el.style.maxWidth='none';
+  html2canvas(el,{scale:2,backgroundColor:'#ffffff',useCORS:true,logging:false,width:fullWidth,windowWidth:fullWidth+100}).then(c=>{
+    if(wrapper) wrapper.style.overflowX=prevOverflow;
+    el.style.width=prevWidth;
+    el.style.maxWidth=prevMaxWidth;
+    const a=document.createElement('a');
+    a.download=`sales_${document.getElementById('filter-branch').value.replace(/\s/g,'_')}_${document.getElementById('filter-month').value}.png`;
+    a.href=c.toDataURL('image/png');a.click();btn.innerHTML=orig;btn.disabled=false;
+  }).catch(err=>{
+    if(wrapper) wrapper.style.overflowX=prevOverflow;
+    el.style.width=prevWidth;
+    el.style.maxWidth=prevMaxWidth;
+    alert('Failed: '+err.message);btn.innerHTML=orig;btn.disabled=false;
+  });
+}
+
+function exportCSV(){
+  const month=document.getElementById('filter-month').value,bn=document.getElementById('filter-branch').value;
+  if(!salesData||!bn)return;
+  const excDel=document.getElementById('excDel').checked,excLS=document.getElementById('excLS').checked,excNE=document.getElementById('excNE').checked;
+  const{prog,orderCount,bData}=computeP(month,bn,excDel,excLS,excNE);if(!bData)return;
+  const mt=cloudTargets[month]||{};
+  const schema=getSchema(month);
+  const ps=(p,t)=>t?(p/t*100).toFixed(1)+'%':'';
+  const fmtV=(v,m)=>v===null?'':(m.unit==='qty'?Number(v).toFixed(0):Number(v).toFixed(2));
+  const mTgtSum=(arr,m)=>arr.reduce((a,p)=>a+((((mt[bn]&&mt[bn][p.id])||{})[m.key])||0),0);
+  const mProgSum=(arr,m)=>{if(m.src==='CUST'){if(!custInfoLoaded)return null;const u=new Set();arr.forEach(p=>{const s=(prog[p.id]||{})._newCusts;if(s)s.forEach(c=>u.add(c));});return u.size;}let s=0;arr.forEach(p=>{const v=metricProg(prog[p.id],m);if(v!==null)s+=v;});return s;};
+  const totalCustSetCSV=new Set();bData.people.forEach(p=>{if(prog[p.id])prog[p.id]._custs.forEach(c=>totalCustSetCSV.add(c));});
+  const metricCols=schema.map(m=>`${m.label} Target,${m.label} Progress,${m.label} Achv%`).join(',');
+  let csv=`Month,Branch,Group,Role,ID,Name,Orders,Customers,${metricCols}\n`;
+  const aggCells=arr=>schema.map(m=>{const tv=mTgtSum(arr,m),pv=mProgSum(arr,m);return `${tv||0},${fmtV(pv,m)},${pv===null?'':ps(pv,tv)}`;}).join(',');
+  csv+=`${month},${bn},,Total,—,"${bn} Total",${orderCount},${totalCustSetCSV.size},${aggCells(bData.people)}\n`;
+  bData.people.forEach(p=>{const pr=prog[p.id]||{_custs:new Set()};const t=(mt[bn]&&mt[bn][p.id])||{};const role=p.isManager?'Manager/Lead':'Salesperson';const custs=pr._custs?pr._custs.size:0;const ords=pr._ords||0;const cells=schema.map(m=>{const tv=t[m.key]||0;const pv=metricProg(pr,m);return `${tv},${fmtV(pv,m)},${pv===null?'':ps(pv,tv)}`;}).join(',');csv+=`${month},${bn},"${p.group||''}",${role},${p.id},"${p.name}",${ords},${custs},${cells}\n`;});
+  const blob=new Blob(['\uFEFF'+csv],{type:'text/csv;charset=utf-8'});
+  const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=`sales_${bn.replace(/\s/g,'_')}_${month}.csv`;a.click();
+}
+
+// ── Branch Summary ─────────────────────────────────────────────
+function syncSumMonths(){
+  if(!salesData) return;
+  const ms=[...new Set(salesData.map(getMonth).filter(Boolean))].sort().reverse();
+  const sel=document.getElementById('sum-month');
+  const cur=sel.value;
+  sel.innerHTML=ms.map(m=>`<option value="${m}">${m}</option>`).join('');
+  if(cur && ms.includes(cur)) sel.value=cur;
+}
+
+function renderSummary(){
+  const el=document.getElementById('summary-body');
+  if(!salesData||!detailData){el.innerHTML='<div class="empty">📋 Upload data first</div>';return;}
+  const month=document.getElementById('sum-month').value;
+  if(!month||month==='—'){el.innerHTML='<div class="empty">Select a month</div>';return;}
+  const excDel=document.getElementById('sumExcDel').checked;
+  const excLS=document.getElementById('sumExcLS').checked;
+  const excNE=document.getElementById('sumExcNE').checked;
+  const mt=cloudTargets[month]||{};
+  const schema=getSchema(month);
+  const monthRoster=cloudRosters[month]||cloudRosters[prevMonthStr(month)]||null;
+  const prev=prevMonthStr(month);
+
+  // Aggregate helper: sum up prog across all people in a branch result
+  function aggP(res){
+    const tp={RAC:0,RAC_amt:0,LAC_qty:0,LAC:0,CAC_qty:0,CAC:0};
+    if(res.bData) res.bData.people.forEach(p=>{
+      const pr=res.prog[p.id]||{};
+      tp.RAC+=(pr.RAC||0); tp.RAC_amt+=(pr.RAC_amt||0);
+      tp.LAC_qty+=(pr.LAC_qty||0); tp.LAC+=(pr.LAC||0);
+      tp.CAC_qty+=(pr.CAC_qty||0); tp.CAC+=(pr.CAC||0);
+    });
+    return tp;
+  }
+
+  // Per-branch current + previous month
+  const branches=monthRoster.map(b=>{
+    const res=computeP(month,b.branch,excDel,excLS,excNE);
+    const resP=computeP(prev,b.branch,excDel,excLS,excNE);
+    const tp=aggP(res), pp=aggP(resP);
+    const tt={RAC:0,LAC:0,CAC:0};
+    if(res.bData) res.bData.people.forEach(p=>{const t=(mt[b.branch]&&mt[b.branch][p.id])||{};LINES.forEach(l=>tt[l]+=summaryTargetOf(schema,t,l));});
+    return{branch:b.branch,tp,pp,tt,orderCount:res.orderCount,customerCount:res.customerCount,racCustomerCount:res.racCustomerCount,lacCacCustomerCount:res.lacCacCustomerCount};
+  });
+
+  // Grand totals
+  const gtp={RAC:0,RAC_amt:0,LAC_qty:0,LAC:0,CAC_qty:0,CAC:0};
+  const gpp={RAC:0,RAC_amt:0,LAC_qty:0,LAC:0,CAC_qty:0,CAC:0};
+  const gtt={RAC:0,LAC:0,CAC:0};
+  let gtOrders=0,gtCustomers=0,gtRacCust=0,gtLacCacCust=0;
+  branches.forEach(b=>{
+    Object.keys(gtp).forEach(k=>{gtp[k]+=b.tp[k]||0; gpp[k]+=b.pp[k]||0;});
+    LINES.forEach(l=>gtt[l]+=b.tt[l]);
+    gtOrders+=b.orderCount; gtCustomers+=b.customerCount;
+    gtRacCust+=b.racCustomerCount; gtLacCacCust+=b.lacCacCustomerCount;
+  });
+
+  // ── Cell helpers ──────────────────────────────────────────────
+  function achv(p,t){
+    if(!t)return'<td class="num" style="color:#ccc">—</td>';
+    const r=p/t,c=r>=1?'pct-g':r>=0.5?'pct-m':'pct-b';
+    return`<td class="num ${c}">${(r*100).toFixed(1)}%</td>`;
+  }
+  function mom(cur,prv){
+    if(!prv)return'<td class="num" style="color:#ccc">—</td>';
+    const r=(cur-prv)/prv;
+    const c=r>=0?'color:#1D9E75':'color:#E24B4A';
+    const sign=r>=0?'▲':'▼';
+    return`<td class="num" style="${c}">${sign}${Math.abs(r*100).toFixed(1)}%</td>`;
+  }
+  function qtyCell(v){if(!v)return'<td class="num" style="color:#ccc">—</td>';return`<td class="num">${Number(v).toFixed(0)}</td>`;}
+  function amtCell(v){if(!v)return'<td class="num" style="color:#ccc">—</td>';return`<td class="num">${fmtAmt(v)}</td>`;}
+  function tgtCell(v,l){if(!v)return'<td class="num" style="color:#bbb">—</td>';return`<td class="num">${fmtNum(v,l)}</td>`;}
+  function cntCell(v){if(!v)return'<td class="num" style="color:#ccc">—</td>';return`<td class="num">${v}</td>`;}
+
+  // 6 cols per product line
+  function racCols(tp,pp,tt){
+    return `${tgtCell(tt.RAC,'RAC')}${qtyCell(tp.RAC)}${amtCell(tp.RAC_amt)}${achv(tp.RAC,tt.RAC)}${qtyCell(pp.RAC)}${mom(tp.RAC,pp.RAC)}`;
+  }
+  function lacCols(tp,pp,tt){
+    return `${tgtCell(tt.LAC,'LAC')}${qtyCell(tp.LAC_qty)}${amtCell(tp.LAC)}${achv(tp.LAC,tt.LAC)}${amtCell(pp.LAC)}${mom(tp.LAC,pp.LAC)}`;
+  }
+  function cacCols(tp,pp,tt){
+    return `${tgtCell(tt.CAC,'CAC')}${qtyCell(tp.CAC_qty)}${amtCell(tp.CAC)}${achv(tp.CAC,tt.CAC)}${amtCell(pp.CAC)}${mom(tp.CAC,pp.CAC)}`;
+  }
+  function totalCols(tp){
+    const tq=tp.RAC+tp.LAC_qty+tp.CAC_qty;
+    const ta=tp.RAC_amt+tp.LAC+tp.CAC;
+    return `${qtyCell(tq)}${amtCell(ta)}`;
+  }
+  function ytdCols(yt){
+    const tq=yt.RAC+yt.LAC_qty+yt.CAC_qty;
+    const ta=yt.RAC_amt+yt.LAC+yt.CAC;
+    return `${qtyCell(yt.RAC)}${amtCell(yt.RAC_amt)}${qtyCell(yt.LAC_qty)}${amtCell(yt.LAC)}${qtyCell(yt.CAC_qty)}${amtCell(yt.CAC)}${qtyCell(tq)}${amtCell(ta)}`;
+  }
+
+  // YTD: sum all months from Jan to current month
+  const [cy,cm]=month.split('-').map(Number);
+  const ytdMonths=[];
+  for(let m=1;m<=cm;m++) ytdMonths.push(cy+'-'+String(m).padStart(2,'0'));
+
+  function computeYTD(bn){
+    const yt={RAC:0,RAC_amt:0,LAC_qty:0,LAC:0,CAC_qty:0,CAC:0};
+    ytdMonths.forEach(ym=>{
+      const res=computeP(ym,bn,excDel,excLS,excNE);
+      if(res.bData) res.bData.people.forEach(p=>{
+        const pr=res.prog[p.id]||{};
+        yt.RAC+=(pr.RAC||0); yt.RAC_amt+=(pr.RAC_amt||0);
+        yt.LAC_qty+=(pr.LAC_qty||0); yt.LAC+=(pr.LAC||0);
+        yt.CAC_qty+=(pr.CAC_qty||0); yt.CAC+=(pr.CAC||0);
+      });
+    });
+    return yt;
+  }
+
+  // Per-branch YTD
+  const branchYTD={};
+  monthRoster.forEach(b=>{ branchYTD[b.branch]=computeYTD(b.branch); });
+  const gyt={RAC:0,RAC_amt:0,LAC_qty:0,LAC:0,CAC_qty:0,CAC:0};
+  Object.values(branchYTD).forEach(yt=>Object.keys(gyt).forEach(k=>gyt[k]+=yt[k]||0));
+
+  // Rows
+  let rows=`<tr class="row-total">
+    <td class="lft" style="font-weight:700">🌐 All Branches</td>
+    ${cntCell(gtOrders)}${cntCell(gtRacCust)}
+    ${racCols(gtp,gpp,gtt)}${cntCell(gtLacCacCust)}${lacCols(gtp,gpp,gtt)}${cacCols(gtp,gpp,gtt)}
+    ${totalCols(gtp)}
+    ${ytdCols(gyt)}
+  </tr>`;
+  branches.forEach(b=>{
+    const yt=branchYTD[b.branch]||{RAC:0,RAC_amt:0,LAC_qty:0,LAC:0,CAC_qty:0,CAC:0};
+    rows+=`<tr>
+      <td class="lft">${esc(b.branch)}</td>
+      ${cntCell(b.orderCount)}${cntCell(b.racCustomerCount)}
+      ${racCols(b.tp,b.pp,b.tt)}${cntCell(b.lacCacCustomerCount)}${lacCols(b.tp,b.pp,b.tt)}${cacCols(b.tp,b.pp,b.tt)}
+      ${totalCols(b.tp)}
+      ${ytdCols(yt)}
+    </tr>`;
+  });
+
+  const fb=[];if(excDel)fb.push('Deleted excluded');if(excLS)fb.push('Lock Stock excluded');if(excNE)fb.push('Not-Exist excluded');
+  const fbadge=fb.length?`<span class="badge amber" style="margin-left:8px">${fb.join(' · ')}</span>`:'';
+  const th=bg=>`style="font-size:11px;background:${bg}"`;
+  const MON=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  const ytdLabel=`YTD (${cy} ${MON[0]} to ${MON[cm-1]})`;
+
+  el.innerHTML=`
+    <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:12px">
+      <div style="font-size:13px;color:#888;display:flex;align-items:center;flex-wrap:wrap;gap:6px">
+        <strong style="color:#111">All Branches</strong> · <span class="badge blue">${month}</span>${fbadge}
+        · ${gtOrders} orders · ${gtRacCust} RAC cust. · ${gtLacCacCust} LAC/CAC cust.
+        · <span style="font-size:12px;color:#aaa">vs ${prev}</span>
+      </div>
+    </div>
+    <div id="sum-capture" style="background:#fff;border-radius:10px;border:1px solid #e5e5e5;overflow:hidden">
+      <div style="padding:12px 16px 10px;border-bottom:1px solid #eee;display:flex;align-items:center;justify-content:space-between;background:#fff">
+        <div>
+          <div style="font-size:14px;font-weight:600">Branch Summary — Sales Performance Report</div>
+          <div style="font-size:11px;color:#aaa;margin-top:2px"><strong style="color:#111;font-size:13px">Month: ${month}</strong> &nbsp;·&nbsp; ${new Date().toLocaleDateString('zh-CN')} · ${fb.join(' / ')||'All orders included'}</div>
+        </div>
+        <div style="font-size:12px;color:#bbb;font-weight:500">GREE Mexico</div>
+      </div>
+      <div style="overflow-x:auto"><table class="rtable">
+        <thead>
+          <tr>
+            <th rowspan="2" style="text-align:left;min-width:150px">Branch</th>
+            <th rowspan="2">Orders</th>
+            <th rowspan="2">RAC<br>Cust.</th>
+            <th colspan="6" style="background:#faf5ec">RAC</th>
+            <th rowspan="2">LAC/<br>CAC Cust.</th>
+            <th colspan="6" style="background:#ecf3fa">LAC</th>
+            <th colspan="6" style="background:#ecfaf4">CAC</th>
+            <th colspan="2" style="background:#f0eaf8">Total</th>
+            <th colspan="8" style="background:#eaf0f8">${ytdLabel}</th>
+          </tr>
+          <tr>
+            <th ${th('#faf5ec')}>Target<br>(qty)</th>
+            <th ${th('#faf5ec')}>Qty</th>
+            <th ${th('#faf5ec')}>Amt</th>
+            <th ${th('#faf5ec')}>Achv%</th>
+            <th ${th('#faf5ec')}>Qty<br>(${prev})</th>
+            <th ${th('#faf5ec')}>MoM%</th>
+            <th ${th('#ecf3fa')}>Target<br>(amt)</th>
+            <th ${th('#ecf3fa')}>Qty</th>
+            <th ${th('#ecf3fa')}>Amt</th>
+            <th ${th('#ecf3fa')}>Achv%</th>
+            <th ${th('#ecf3fa')}>Amt<br>(${prev})</th>
+            <th ${th('#ecf3fa')}>MoM%</th>
+            <th ${th('#ecfaf4')}>Target<br>(amt)</th>
+            <th ${th('#ecfaf4')}>Qty</th>
+            <th ${th('#ecfaf4')}>Amt</th>
+            <th ${th('#ecfaf4')}>Achv%</th>
+            <th ${th('#ecfaf4')}>Amt<br>(${prev})</th>
+            <th ${th('#ecfaf4')}>MoM%</th>
+            <th ${th('#f0eaf8')}>Qty</th>
+            <th ${th('#f0eaf8')}>Amt</th>
+            <th ${th('#eaf0f8')}>RAC Qty</th>
+            <th ${th('#eaf0f8')}>RAC Amt</th>
+            <th ${th('#eaf0f8')}>LAC Qty</th>
+            <th ${th('#eaf0f8')}>LAC Amt</th>
+            <th ${th('#eaf0f8')}>CAC Qty</th>
+            <th ${th('#eaf0f8')}>CAC Amt</th>
+            <th ${th('#eaf0f8')}>Total Qty</th>
+            <th ${th('#eaf0f8')}>Total Amt</th>
+          </tr>
+        </thead>
+        <tbody>${rows}</tbody>
+      </table></div>
+    </div>`;
+}
+
+function exportSummaryPNG(){
+  const el=document.getElementById('sum-capture');if(!el){alert('No report.');return;}
+  const btn=document.getElementById('sum-png-btn');const orig=btn.innerHTML;
+  btn.innerHTML='⏳ Generating...';btn.disabled=true;
+
+  // Temporarily expand the container to full table width so html2canvas captures everything
+  const wrapper=el.querySelector('div[style*="overflow-x"]');
+  const table=el.querySelector('table');
+  const prevOverflow=wrapper?wrapper.style.overflowX:'';
+  const prevWidth=el.style.width;
+  const prevMaxWidth=el.style.maxWidth;
+  const fullWidth=table?table.scrollWidth:el.scrollWidth;
+  if(wrapper) wrapper.style.overflowX='visible';
+  el.style.width=fullWidth+'px';
+  el.style.maxWidth='none';
+
+  html2canvas(el,{scale:2,backgroundColor:'#ffffff',useCORS:true,logging:false,width:fullWidth,windowWidth:fullWidth+100}).then(c=>{
+    // Restore styles
+    if(wrapper) wrapper.style.overflowX=prevOverflow;
+    el.style.width=prevWidth;
+    el.style.maxWidth=prevMaxWidth;
+    const a=document.createElement('a');
+    a.download=`branch_summary_${document.getElementById('sum-month').value}.png`;
+    a.href=c.toDataURL('image/png');a.click();btn.innerHTML=orig;btn.disabled=false;
+  }).catch(err=>{
+    if(wrapper) wrapper.style.overflowX=prevOverflow;
+    el.style.width=prevWidth;
+    el.style.maxWidth=prevMaxWidth;
+    alert('Failed: '+err.message);btn.innerHTML=orig;btn.disabled=false;
+  });
+}
+
+function exportSummaryCSV(){
+  const month=document.getElementById('sum-month').value;
+  if(!salesData||!month||month==='—')return;
+  const excDel=document.getElementById('sumExcDel').checked,excLS=document.getElementById('sumExcLS').checked,excNE=document.getElementById('sumExcNE').checked;
+  const mt=cloudTargets[month]||{};
+  const schema=getSchema(month);
+  const monthRoster=cloudRosters[month]||cloudRosters[prevMonthStr(month)]||null;
+  const prev=prevMonthStr(month);
+  const [cy,cm]=month.split('-').map(Number);
+  const ytdMonths=[];for(let m=1;m<=cm;m++)ytdMonths.push(cy+'-'+String(m).padStart(2,'0'));
+  function aggP(res){const tp={RAC:0,RAC_amt:0,LAC_qty:0,LAC:0,CAC_qty:0,CAC:0};if(res.bData)res.bData.people.forEach(p=>{const pr=res.prog[p.id]||{};tp.RAC+=(pr.RAC||0);tp.RAC_amt+=(pr.RAC_amt||0);tp.LAC_qty+=(pr.LAC_qty||0);tp.LAC+=(pr.LAC||0);tp.CAC_qty+=(pr.CAC_qty||0);tp.CAC+=(pr.CAC||0);});return tp;}
+  function compYTD(bn){const yt={RAC:0,RAC_amt:0,LAC_qty:0,LAC:0,CAC_qty:0,CAC:0};ytdMonths.forEach(ym=>{const res=computeP(ym,bn,excDel,excLS,excNE);if(res.bData)res.bData.people.forEach(p=>{const pr=res.prog[p.id]||{};yt.RAC+=(pr.RAC||0);yt.RAC_amt+=(pr.RAC_amt||0);yt.LAC_qty+=(pr.LAC_qty||0);yt.LAC+=(pr.LAC||0);yt.CAC_qty+=(pr.CAC_qty||0);yt.CAC+=(pr.CAC||0);});});return yt;}
+  const gtp={RAC:0,RAC_amt:0,LAC_qty:0,LAC:0,CAC_qty:0,CAC:0};
+  const gpp={RAC:0,RAC_amt:0,LAC_qty:0,LAC:0,CAC_qty:0,CAC:0};
+  const gyt={RAC:0,RAC_amt:0,LAC_qty:0,LAC:0,CAC_qty:0,CAC:0};
+  const gtt={RAC:0,LAC:0,CAC:0};let gtO=0,gtC=0,gtRacCust=0,gtLacCacCust=0;
+  const rows=[];
+  monthRoster.forEach(b=>{
+    const res=computeP(month,b.branch,excDel,excLS,excNE);
+    const resP=computeP(prev,b.branch,excDel,excLS,excNE);
+    const tp=aggP(res),pp=aggP(resP),yt=compYTD(b.branch);
+    const tt={RAC:0,LAC:0,CAC:0};
+    if(res.bData)res.bData.people.forEach(p=>{const t=(mt[b.branch]&&mt[b.branch][p.id])||{};LINES.forEach(l=>tt[l]+=summaryTargetOf(schema,t,l));});
+    Object.keys(gtp).forEach(k=>{gtp[k]+=tp[k]||0;gpp[k]+=pp[k]||0;gyt[k]+=yt[k]||0;});
+    LINES.forEach(l=>gtt[l]+=tt[l]);gtO+=res.orderCount;gtC+=res.customerCount;
+    gtRacCust+=res.racCustomerCount||0;gtLacCacCust+=res.lacCacCustomerCount||0;
+    const ps=(p,t)=>t?(p/t*100).toFixed(1)+'%':'';
+    const mm=(c,p)=>p?((c-p)/p*100).toFixed(1)+'%':'';
+    const tq=(tp.RAC+tp.LAC_qty+tp.CAC_qty).toFixed(0),ta=(tp.RAC_amt+tp.LAC+tp.CAC).toFixed(2);
+    const ytq=(yt.RAC+yt.LAC_qty+yt.CAC_qty).toFixed(0),yta=(yt.RAC_amt+yt.LAC+yt.CAC).toFixed(2);
+    rows.push(`${month},"${b.branch}",${res.orderCount},${res.racCustomerCount||0},${tt.RAC||0},${tp.RAC.toFixed(0)},${tp.RAC_amt.toFixed(2)},${ps(tp.RAC,tt.RAC)},${pp.RAC.toFixed(0)},${mm(tp.RAC,pp.RAC)},${res.lacCacCustomerCount||0},${tt.LAC||0},${tp.LAC_qty.toFixed(0)},${tp.LAC.toFixed(2)},${ps(tp.LAC,tt.LAC)},${pp.LAC.toFixed(2)},${mm(tp.LAC,pp.LAC)},${tt.CAC||0},${tp.CAC_qty.toFixed(0)},${tp.CAC.toFixed(2)},${ps(tp.CAC,tt.CAC)},${pp.CAC.toFixed(2)},${mm(tp.CAC,pp.CAC)},${tq},${ta},${yt.RAC.toFixed(0)},${yt.RAC_amt.toFixed(2)},${yt.LAC_qty.toFixed(0)},${yt.LAC.toFixed(2)},${yt.CAC_qty.toFixed(0)},${yt.CAC.toFixed(2)},${ytq},${yta}`);
+  });
+  const ps=(p,t)=>t?(p/t*100).toFixed(1)+'%':'';
+  const mm=(c,p)=>p?((c-p)/p*100).toFixed(1)+'%':'';
+  const gtq=(gtp.RAC+gtp.LAC_qty+gtp.CAC_qty).toFixed(0),gta=(gtp.RAC_amt+gtp.LAC+gtp.CAC).toFixed(2);
+  const gytq=(gyt.RAC+gyt.LAC_qty+gyt.CAC_qty).toFixed(0),gyta=(gyt.RAC_amt+gyt.LAC+gyt.CAC).toFixed(2);
+  let csv=`Month,Branch,Orders,RAC Customers,RAC Target(qty),RAC Qty,RAC Amt,RAC Achv%,RAC Qty(${prev}),RAC MoM%,LAC/CAC Customers,LAC Target,LAC Qty,LAC Amt,LAC Achv%,LAC Amt(${prev}),LAC MoM%,CAC Target,CAC Qty,CAC Amt,CAC Achv%,CAC Amt(${prev}),CAC MoM%,Total Qty,Total Amt,YTD RAC Qty,YTD RAC Amt,YTD LAC Qty,YTD LAC Amt,YTD CAC Qty,YTD CAC Amt,YTD Total Qty,YTD Total Amt\n`;
+  csv+=`${month},ALL BRANCHES,${gtO},${gtRacCust},${gtt.RAC||0},${gtp.RAC.toFixed(0)},${gtp.RAC_amt.toFixed(2)},${ps(gtp.RAC,gtt.RAC)},${gpp.RAC.toFixed(0)},${mm(gtp.RAC,gpp.RAC)},${gtLacCacCust},${gtt.LAC||0},${gtp.LAC_qty.toFixed(0)},${gtp.LAC.toFixed(2)},${ps(gtp.LAC,gtt.LAC)},${gpp.LAC.toFixed(2)},${mm(gtp.LAC,gpp.LAC)},${gtt.CAC||0},${gtp.CAC_qty.toFixed(0)},${gtp.CAC.toFixed(2)},${ps(gtp.CAC,gtt.CAC)},${gpp.CAC.toFixed(2)},${mm(gtp.CAC,gpp.CAC)},${gtq},${gta},${gyt.RAC.toFixed(0)},${gyt.RAC_amt.toFixed(2)},${gyt.LAC_qty.toFixed(0)},${gyt.LAC.toFixed(2)},${gyt.CAC_qty.toFixed(0)},${gyt.CAC.toFixed(2)},${gytq},${gyta}\n`;
+  csv+=rows.join('\n');
+  const blob=new Blob(['\uFEFF'+csv],{type:'text/csv;charset=utf-8'});
+  const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=`branch_summary_${month}.csv`;a.click();
+}
+
+// Init
+loadFromCloud();
+</script>
+</body>
+</html>
