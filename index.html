@@ -759,9 +759,25 @@ function toggleLead(bi,pi){flushEditorTargets();editorRoster[bi].people[pi].isMa
 function setGroup(bi,pi,v){flushEditorTargets();editorRoster[bi].people[pi].group=(v||'').trim();renderEditor();}
 
 // ── Dimension (metric schema) editing ──────────────────────────
+let dimEditorOpen=false;   // Target-dimensions panel collapsed by default
+function toggleDimEditor(){dimEditorOpen=!dimEditorOpen;renderDimEditor(getTargetMonth());}
 function renderDimEditor(month){
   const host=document.getElementById('dim-editor');if(!host)return;
   const schema=getSchema(month);
+  const summary=schema.map(m=>`${esc(m.label)} (${m.unit})`).join('  ·  ');
+  const header=`<div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;cursor:pointer" onclick="toggleDimEditor()">
+        <div style="display:flex;align-items:center;gap:8px;min-width:0">
+          <span style="font-size:11px;color:#999;display:inline-block;transition:transform .15s;transform:rotate(${dimEditorOpen?90:0}deg)">▶</span>
+          <div style="min-width:0">
+            <div style="font-size:13px;font-weight:600">📐 Target dimensions for ${month}${cloudSchemas[month]?'':' <span style="font-size:11px;color:#aaa;font-weight:400">(default)</span>'}</div>
+            ${dimEditorOpen
+              ? `<div style="font-size:11px;color:#888;margin-top:2px">These columns drive the Target Setup inputs and this month's department Report. Editable per month.</div>`
+              : `<div style="font-size:11px;color:#aaa;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${summary}</div>`}
+          </div>
+        </div>
+        <button class="btn sm" onclick="event.stopPropagation();toggleDimEditor()">${dimEditorOpen?'▲ Collapse':'▼ Edit dimensions'}</button>
+      </div>`;
+  if(!dimEditorOpen){host.innerHTML=`<div class="card" style="padding:0.7rem 1rem;margin-bottom:1rem">${header}</div>`;return;}
   const srcSel=(cur,i)=>`<select onchange="setMetric(${i},'src',this.value)" style="font-size:11px;padding:4px 6px">${SRC_OPTIONS.map(o=>`<option value="${o.v}"${o.v===cur?' selected':''}>${o.label}</option>`).join('')}</select>`;
   const unitSel=(cur,i)=>`<select onchange="setMetric(${i},'unit',this.value)" style="font-size:11px;padding:4px 6px"><option value="qty"${cur==='qty'?' selected':''}>qty</option><option value="amt"${cur==='amt'?' selected':''}>amt</option></select>`;
   const rows=schema.map((m,i)=>`
@@ -775,15 +791,10 @@ function renderDimEditor(month){
     </div>`).join('');
   host.innerHTML=`
     <div class="card" style="padding:0.9rem 1rem;margin-bottom:1rem">
-      <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:8px">
-        <div>
-          <div style="font-size:13px;font-weight:600">📐 Target dimensions for ${month}${cloudSchemas[month]?'':' <span style="font-size:11px;color:#aaa;font-weight:400">(default)</span>'}</div>
-          <div style="font-size:11px;color:#888;margin-top:2px">These columns drive the Target Setup inputs and this month's department Report. Editable per month.</div>
-        </div>
-        <div style="display:flex;gap:6px;flex-wrap:wrap">
-          <button class="btn sm" onclick="applyPreset('classic')">Preset: RAC / LAC / CAC</button>
-          <button class="btn sm" onclick="applyPreset('merged')">Preset: RAC / L&CAC / L&CAC Cus</button>
-        </div>
+      ${header}
+      <div style="display:flex;gap:6px;flex-wrap:wrap;margin:12px 0 8px">
+        <button class="btn sm" onclick="applyPreset('classic')">Preset: RAC / LAC / CAC</button>
+        <button class="btn sm" onclick="applyPreset('merged')">Preset: RAC / L&CAC / L&CAC Cus</button>
       </div>
       <div style="display:flex;flex-direction:column;gap:6px">${rows}</div>
       <button class="btn sm" style="margin-top:8px" onclick="addMetric()">+ Add dimension</button>
