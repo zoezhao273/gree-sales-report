@@ -42,8 +42,19 @@ select:focus,input:focus{border-color:#378ADD}
 .slider:before{position:absolute;content:"";height:14px;width:14px;left:3px;bottom:3px;background:#fff;border-radius:50%;transition:.2s}
 input:checked+.slider{background:#1D9E75}
 input:checked+.slider:before{transform:translateX(16px)}
-.upload-zone{border:2px dashed #ddd;border-radius:12px;padding:3rem;text-align:center;cursor:pointer;transition:.15s}
+.upload-zone{border:2px dashed #ddd;border-radius:10px;padding:1.4rem 1rem;text-align:center;cursor:pointer;transition:.15s}
 .upload-zone:hover,.upload-zone.drag{background:#f4f4f2;border-color:#aaa}
+.upload-grid{display:grid;grid-template-columns:1fr 1fr;gap:1rem;margin-bottom:1rem}
+@media(max-width:760px){.upload-grid{grid-template-columns:1fr}}
+.card-head{display:flex;justify-content:space-between;align-items:flex-start;gap:10px;margin-bottom:12px}
+.card-title{font-size:14px;font-weight:600}
+.card-sub{font-size:12px;color:#888;margin-top:2px;line-height:1.35}
+.uz-icon{font-size:1.6rem;margin-bottom:4px;line-height:1}
+.uz-main{font-size:13px;font-weight:500;margin-bottom:2px}
+.uz-sub{font-size:12px;color:#aaa}
+.uz-status{display:none;margin-top:12px;padding-top:10px;border-top:1px dashed #d5d5d5}
+.uz-status .uz-fname{font-size:13px;font-weight:600;color:#111;word-break:break-all}
+.uz-status .uz-fres{font-size:12px;color:#1D9E75;margin-top:3px}
 .badge{display:inline-block;font-size:11px;padding:2px 8px;border-radius:6px;font-weight:500}
 .badge.green{background:#EAF3DE;color:#3B6D11}
 .badge.amber{background:#FAEEDA;color:#854F0B}
@@ -123,65 +134,47 @@ tr.drag-over td{border-top:2px solid #378ADD}
 
   <div class="tabs">
     <button class="tab active" onclick="switchTab('report')">Report</button>
-    <button class="tab" onclick="switchTab('summary')">Branch Summary</button>
     <button class="tab" onclick="switchTab('targets')">Target Setup</button>
     <button class="tab" onclick="switchTab('upload')">Upload Data</button>
   </div>
 
-  <div id="tab-summary" style="display:none">
-    <div class="filters">
-      <div class="fg"><div class="fl">Month</div><select id="sum-month" onchange="renderSummary()"><option>—</option></select></div>
-      <div class="fg">
-        <div class="fl" style="opacity:0">x</div>
-        <div class="toggle-row"><label class="toggle"><input type="checkbox" id="sumExcDel" onchange="renderSummary()" checked><span class="slider"></span></label><span>Exclude Deleted</span></div>
-        <div class="fn">ERP Order Status = Deleted</div>
-      </div>
-      <div class="fg">
-        <div class="fl" style="opacity:0">x</div>
-        <div class="toggle-row"><label class="toggle"><input type="checkbox" id="sumExcLS" onchange="renderSummary()" checked><span class="slider"></span></label><span>Exclude Lock Stock</span></div>
-        <div class="fn">Order Type = Lock Stock Order</div>
-      </div>
-      <div class="fg">
-        <div class="fl" style="opacity:0">x</div>
-        <div class="toggle-row"><label class="toggle"><input type="checkbox" id="sumExcNE" onchange="renderSummary()"><span class="slider"></span></label><span>Exclude Not-Exist</span></div>
-        <div class="fn">ERP Order Status = Not-Exist</div>
-      </div>
-
-      <div class="fg">
-        <div class="fl" style="opacity:0">x</div>
-        <button class="btn blue" id="sum-png-btn" onclick="exportSummaryPNG()">🖼 Export PNG</button>
-      </div>
-      <div class="fg">
-        <div class="fl" style="opacity:0">x</div>
-        <button class="btn" onclick="exportSummaryCSV()">📄 Export CSV</button>
-      </div>
-    </div>
-    <div id="summary-body"><div class="empty">📋 Upload data and select a month to view branch summary</div></div>
-  </div>
-
   <div id="tab-upload">
-    <div class="card">
-      <div style="font-size:15px;font-weight:600;margin-bottom:4px">Upload Sales Order Report</div>
-      <div style="font-size:13px;color:#888;margin-bottom:16px">Excel with "Sales Order" and "Detail Sales Order" sheets</div>
-      <div class="upload-zone" id="drop-zone" onclick="document.getElementById('fi').click()">
-        <div style="font-size:2.5rem;margin-bottom:10px">📂</div>
-        <div style="font-size:15px;font-weight:500;margin-bottom:4px">Click to upload or drag & drop</div>
-        <div style="font-size:13px;color:#888">Sales_Order_Report.xlsx</div>
+    <div class="upload-grid">
+      <div class="card">
+        <div class="card-head">
+          <div>
+            <div class="card-title">Upload Sales Order Report</div>
+            <div class="card-sub">Excel with "Sales Order" and "Detail Sales Order" sheets</div>
+          </div>
+          <button class="btn sm" id="clear-sales-btn" onclick="clearSalesFile()" disabled>✕ Clear</button>
+        </div>
+        <div class="upload-zone" id="drop-zone" onclick="document.getElementById('fi').click()">
+          <div class="uz-icon">📂</div>
+          <div class="uz-main">Click to upload or drag &amp; drop</div>
+          <div class="uz-sub">Sales_Order_Report.xlsx</div>
+          <div class="uz-status" id="dz-status"></div>
+        </div>
+        <input type="file" id="fi" accept=".xlsx,.xls" style="display:none" onchange="handleFile(this)">
+        <div id="upload-result" style="margin-top:10px"></div>
       </div>
-      <input type="file" id="fi" accept=".xlsx,.xls" style="display:none" onchange="handleFile(this)">
-    </div>
-    <div id="upload-result"></div>
 
-    <div class="card">
-      <div style="font-size:15px;font-weight:600;margin-bottom:4px">Upload Customer Basic Info <span class="badge blue" style="margin-left:4px">for L&amp;CAC Cus</span></div>
-      <div style="font-size:13px;color:#888;margin-bottom:16px">Excel with columns <strong>Customer Name</strong> and <strong>First Cooperate Date</strong>. Needed to compute new-customer development.</div>
-      <div class="upload-zone" id="drop-zone2" onclick="document.getElementById('fi2').click()">
-        <div style="font-size:2.5rem;margin-bottom:10px">👥</div>
-        <div style="font-size:15px;font-weight:500;margin-bottom:4px">Click to upload or drag &amp; drop</div>
-        <div style="font-size:13px;color:#888">Customer_Basic_Info.xlsx</div>
+      <div class="card">
+        <div class="card-head">
+          <div>
+            <div class="card-title">Upload Customer Basic Info <span class="badge blue" style="margin-left:4px">for L&amp;CAC Cus</span></div>
+            <div class="card-sub">Excel with columns <strong>Customer Name</strong> and <strong>First Cooperate Date</strong>. Needed to compute new-customer development.</div>
+          </div>
+          <button class="btn sm" id="clear-cust-btn" onclick="clearCustFile()" disabled>✕ Clear</button>
+        </div>
+        <div class="upload-zone" id="drop-zone2" onclick="document.getElementById('fi2').click()">
+          <div class="uz-icon">👥</div>
+          <div class="uz-main">Click to upload or drag &amp; drop</div>
+          <div class="uz-sub">Customer_Basic_Info.xlsx</div>
+          <div class="uz-status" id="dz2-status"></div>
+        </div>
+        <input type="file" id="fi2" accept=".xlsx,.xls" style="display:none" onchange="handleCustFile(this)">
+        <div id="cust-result" style="margin-top:10px"></div>
       </div>
-      <input type="file" id="fi2" accept=".xlsx,.xls" style="display:none" onchange="handleCustFile(this)">
-      <div id="cust-result" style="margin-top:12px"></div>
     </div>
   </div>
 
@@ -232,12 +225,12 @@ tr.drag-over td{border-top:2px solid #378ADD}
       </div>
       <div class="fg">
         <div class="fl" style="opacity:0">x</div>
-        <div class="toggle-row"><label class="toggle"><input type="checkbox" id="excLS" onchange="renderReport()" checked><span class="slider"></span></label><span>Exclude Lock Stock</span></div>
-        <div class="fn">Order Type = Lock Stock Order</div>
+        <div class="toggle-row"><label class="toggle"><input type="checkbox" id="excLS" onchange="renderReport()" checked><span class="slider"></span></label><span>Exclude Lock Stock / Inner Use</span></div>
+        <div class="fn">Order Type = Lock Stock Order / Inner Use</div>
       </div>
       <div class="fg">
         <div class="fl" style="opacity:0">x</div>
-        <div class="toggle-row"><label class="toggle"><input type="checkbox" id="excNE" onchange="renderReport()"><span class="slider"></span></label><span>Exclude Not-Exist</span></div>
+        <div class="toggle-row"><label class="toggle"><input type="checkbox" id="excNE" onchange="renderReport()" checked><span class="slider"></span></label><span>Exclude Not-Exist</span></div>
         <div class="fn">ERP Order Status = Not-Exist</div>
       </div>
 
@@ -501,13 +494,12 @@ async function saveAll(){
 
 // ── Tabs ───────────────────────────────────────────────────────
 function switchTab(t){
-  ['report','summary','targets','upload'].forEach((n,i)=>{
+  ['report','targets','upload'].forEach((n,i)=>{
     document.getElementById('tab-'+n).style.display=n===t?'':'none';
     document.querySelectorAll('.tab')[i].classList.toggle('active',n===t);
   });
   if(t==='targets') renderEditor();
   if(t==='report'){syncBD();renderReport();}
-  if(t==='summary'){syncSumMonths();renderSummary();}
 }
 switchTab('upload');
 
@@ -517,8 +509,10 @@ function syncBD(){
   const r=month&&cloudRosters[month]?cloudRosters[month]:(getLatestRoster());
   const sel=document.getElementById('filter-branch');
   const cur=sel.value;
-  sel.innerHTML=r.map(b=>`<option value="${esc(b.branch)}">${esc(b.branch)}</option>`).join('');
-  if(cur&&r.find(b=>b.branch===cur))sel.value=cur;
+  sel.innerHTML=r.map(b=>`<option value="${esc(b.branch)}">${esc(b.branch)}</option>`).join('')
+    +`<option value="__OTHER__">Other Dept</option>`
+    +`<option value="__SUMMARY__">All Branches Summary</option>`;
+  if(cur&&(cur==='__SUMMARY__'||cur==='__OTHER__'||r.find(b=>b.branch===cur)))sel.value=cur;
 }
 
 // ── File upload ────────────────────────────────────────────────
@@ -535,7 +529,11 @@ function handleFile(inp){
       detailData=XLSX.utils.sheet_to_json(wb.Sheets[s2]);
       populateMonths();
       document.getElementById('file-status').innerHTML=`<div class="file-info">✅ <span>${f.name}</span><span class="badge green">${salesData.length} orders</span></div>`;
-      document.getElementById('upload-result').innerHTML=`<div class="card"><div style="font-size:14px;font-weight:600;color:#1D9E75;margin-bottom:8px">✅ File loaded</div><div style="font-size:13px;color:#888">Sales Order: <strong>${salesData.length}</strong> rows &nbsp;|&nbsp; Detail: <strong>${detailData.length}</strong> rows</div><div style="margin-top:12px"><button class="btn primary" onclick="switchTab('report')">View Report →</button></div></div>`;
+      const ds=document.getElementById('dz-status');
+      ds.innerHTML=`<div class="uz-fname">📄 ${f.name}</div><div class="uz-fres">Sales Orders ${salesData.length} · Detail Rows ${detailData.length}</div>`;
+      ds.style.display='block';
+      document.getElementById('upload-result').innerHTML=`<div style="text-align:right"><button class="btn sm primary" onclick="switchTab('report')">View Report →</button></div>`;
+      document.getElementById('clear-sales-btn').disabled=false;
     }catch(err){alert('Error: '+err.message);}
   };
   rd.readAsArrayBuffer(f);
@@ -570,10 +568,13 @@ function handleCustFile(inp){
         const ym=ymOf(rows[r][fcdI]);if(ym){custFirstMonth[nm]=ym;withDate++;}
       }
       custInfoLoaded=true;
-      document.getElementById('cust-result').innerHTML=`<div class="save-ok">✅ ${f.name} — <strong>${n}</strong> customers (<strong>${withDate}</strong> with First Cooperate Date). L&amp;CAC Cus is now computed.</div>`;
+      const ds2=document.getElementById('dz2-status');
+      ds2.innerHTML=`<div class="uz-fname">📄 ${f.name}</div><div class="uz-fres">Customers ${n}${withDate<n?` <span style="color:#999">(${withDate} with date)</span>`:''}</div>`;
+      ds2.style.display='block';
+      document.getElementById('cust-result').innerHTML='';
+      document.getElementById('clear-cust-btn').disabled=false;
       document.getElementById('file-status2') && (document.getElementById('file-status2').innerHTML='');
       if(document.getElementById('tab-report').style.display!=='none') renderReport();
-      if(document.getElementById('tab-summary').style.display!=='none') renderSummary();
     }catch(err){alert('Error reading Customer Basic Info: '+err.message);}
   };
   rd.readAsArrayBuffer(f);
@@ -585,13 +586,34 @@ if(dz2){
   dz2.addEventListener('drop',e=>{e.preventDefault();dz2.classList.remove('drag');const f=e.dataTransfer.files[0];if(f){const i=document.getElementById('fi2');const dt=new DataTransfer();dt.items.add(f);i.files=dt.files;handleCustFile(i);}});
 }
 
+// ── Clear uploaded files ───────────────────────────────────────
+function clearSalesFile(){
+  salesData=null;detailData=null;
+  const fi=document.getElementById('fi');if(fi)fi.value='';
+  document.getElementById('upload-result').innerHTML='';
+  const ds=document.getElementById('dz-status');if(ds){ds.innerHTML='';ds.style.display='none';}
+  const fs=document.getElementById('file-status');if(fs)fs.innerHTML='';
+  document.getElementById('clear-sales-btn').disabled=true;
+  // reset month dropdown; branch list falls back to roster; report shows empty state
+  document.getElementById('filter-month').innerHTML='<option>—</option>';
+  syncBD();
+  if(document.getElementById('tab-report').style.display!=='none') renderReport();
+}
+function clearCustFile(){
+  custFirstMonth={};custInfoLoaded=false;
+  const fi2=document.getElementById('fi2');if(fi2)fi2.value='';
+  document.getElementById('cust-result').innerHTML='';
+  const ds2=document.getElementById('dz2-status');if(ds2){ds2.innerHTML='';ds2.style.display='none';}
+  document.getElementById('clear-cust-btn').disabled=true;
+  if(document.getElementById('tab-report').style.display!=='none') renderReport();
+}
+
 function getMonth(r){const d=r['Order Date']||'';const m=String(d).match(/(\d{4})-(\d{2})/)||String(d).match(/(\d{2})-(\d{2})-(\d{4})/);if(!m)return'';return String(d).match(/^\d{2}-\d{2}-\d{4}$/)?m[3]+'-'+m[2]:m[1]+'-'+m[2];}
 function getPL(c){if(!c)return'';const s=String(c);if(s.length>=5){const pl=s.slice(2,5);if(LINES.includes(pl))return pl;}return'';}
 function populateMonths(){
   if(!salesData)return;
   const ms=[...new Set(salesData.map(getMonth).filter(Boolean))].sort().reverse();
   document.getElementById('filter-month').innerHTML=ms.map(m=>`<option value="${m}">${m}</option>`).join('');
-  document.getElementById('sum-month').innerHTML=ms.map(m=>`<option value="${m}">${m}</option>`).join('');
   syncBD();
 }
 
@@ -827,13 +849,18 @@ function computeP(month,bn,excDel,excLS,excNE){
   const bData=monthRoster.find(b=>b.branch===bn);
   if(!bData)return{prog:{},orderCount:0,customerCount:0,remapped:0,bData:null};
   const idx=buildIdx(monthRoster);
-  const orders=salesData.filter(r=>{if(getMonth(r)!==month)return false;if(excDel&&r['ERP Order Status']==='Deleted')return false;if(excLS&&r['Order Type']==='Lock Stock Order')return false;if(excNE&&r['ERP Order Status']==='Not-Exist')return false;return true;});
+  const orders=salesData.filter(r=>{if(getMonth(r)!==month)return false;if(excDel&&r['ERP Order Status']==='Deleted')return false;if(excLS&&(r['Order Type']==='Lock Stock Order'||r['Order Type']==='Inner Use'))return false;if(excNE&&r['ERP Order Status']==='Not-Exist')return false;return true;});
   const oc=new Set(),opm={};
   orders.forEach(r=>{const m=matchP(String(r['Salesman']||'').trim(),idx);if(m&&m.branch===bn){oc.add(r['Order Code']);opm[r['Order Code']]=m.p.id;}});
+  // An order only counts toward Orders & Custs if it has at least one RAC/LAC/CAC
+  // detail line. Parts/service/installation-only orders (PAT/SRV/IST/SMP…) are
+  // ignored for counting (they contribute 0 amount to any tracked line anyway).
+  const validOrders=new Set();
+  detailData.forEach(d=>{const code=d['Order Code'];if(oc.has(code)&&getPL(d['Category Code']))validOrders.add(code);});
   // prog: RAC qty+amt, LAC qty+amt, CAC qty+amt, plus per-person customer sets
   const prog={};bData.people.forEach(p=>prog[p.id]={RAC:0,RAC_amt:0,LAC_qty:0,LAC:0,CAC_qty:0,CAC:0,_custs:new Set(),_ords:0});
-  // Count orders per person
-  Object.values(opm).forEach(id=>{if(prog[id]) prog[id]._ords++;});
+  // Count orders per person (valid orders only)
+  Object.keys(opm).forEach(code=>{if(validOrders.has(code)){const id=opm[code];if(prog[id])prog[id]._ords++;}});
   // Build orderCode → customer map for per-person counting
   const _oc2cust={};
   orders.filter(r=>oc.has(r['Order Code'])).forEach(r=>{
@@ -848,18 +875,19 @@ function computeP(month,bn,excDel,excLS,excNE){
     else if(pl==='LAC'){prog[key].LAC_qty+=qty;prog[key].LAC+=amt;}
     else if(pl==='CAC'){prog[key].CAC_qty+=qty;prog[key].CAC+=amt;}
   });
-  // Assign customers to each person based on their orders
+  // Assign customers to each person based on their orders (valid orders only)
   Object.keys(_oc2cust).forEach(code=>{
+    if(!validOrders.has(code))return;
     const key=opm[code];if(key&&prog[key]) prog[key]._custs.add(_oc2cust[code]);
   });
-  let remapped=0;orders.forEach(r=>{if(oc.has(r['Order Code'])&&r['Branch']!==bn)remapped++;});
+  let remapped=0;orders.forEach(r=>{if(validOrders.has(r['Order Code'])&&r['Branch']!==bn)remapped++;});
   // Unique customers for this branch's orders, split by product line
   const customerSet=new Set();
   const racCustomerSet=new Set();
   const lacCacCustomerSet=new Set();
   // Build a map: orderCode → customer name, and orderCode → product lines purchased
   const orderCustomer={};
-  orders.filter(r=>oc.has(r['Order Code'])).forEach(r=>{
+  orders.filter(r=>validOrders.has(r['Order Code'])).forEach(r=>{
     const c=r['Customer']||r['customer']||r['客户']||'';
     if(c) orderCustomer[r['Order Code']]=String(c).trim();
   });
@@ -891,7 +919,131 @@ function computeP(month,bn,excDel,excLS,excNE){
       if(nc&&custFirstMonth[nc]===month) prog[key]._newCusts.add(nc);
     });
   }
-  return{prog,orderCount:oc.size,customerCount:customerSet.size,racCustomerCount:racCustomerSet.size,lacCacCustomerCount:lacCacCustomerSet.size,remapped,bData};
+  return{prog,orderCount:validOrders.size,customerCount:customerSet.size,racCustomerCount:racCustomerSet.size,lacCacCustomerCount:lacCacCustomerSet.size,remapped,bData};
+}
+
+// ── Other Dept ─────────────────────────────────────────────────
+// Orders whose Salesman matches NO roster person (i.e. dept & salesman are not
+// in Target Setup) are grouped here, by raw Branch (department) then by salesman.
+// No targets exist, so the view drops Target / Achv % and shows Progress only.
+// Same counting rule as the main report: an order counts only if it has ≥1
+// RAC/LAC/CAC detail line.
+function computeOther(month,excDel,excLS,excNE){
+  const monthRoster=cloudRosters[month]||cloudRosters[prevMonthStr(month)]||[];
+  const idx=buildIdx(monthRoster);
+  const orders=salesData.filter(r=>{if(getMonth(r)!==month)return false;if(excDel&&r['ERP Order Status']==='Deleted')return false;if(excLS&&(r['Order Type']==='Lock Stock Order'||r['Order Type']==='Inner Use'))return false;if(excNE&&r['ERP Order Status']==='Not-Exist')return false;return true;});
+  // orphan orders = salesman not matched to any roster person
+  const orphan={};
+  orders.forEach(r=>{
+    if(matchP(String(r['Salesman']||'').trim(),idx)) return; // matched → belongs to a real branch
+    orphan[r['Order Code']]={
+      dept:(String(r['Branch']||'').trim())||'(No Dept)',
+      sm:(String(r['Salesman']||'').trim())||'(No Salesman)',
+      cust:String(r['Customer']||r['customer']||r['客户']||'').trim()
+    };
+  });
+  // valid = has at least one RAC/LAC/CAC detail line
+  const valid=new Set();
+  detailData.forEach(d=>{const code=d['Order Code'];if(orphan[code]&&getPL(d['Category Code']))valid.add(code);});
+  const deptMap={};
+  const ens=(dept,sm)=>{if(!deptMap[dept])deptMap[dept]={};if(!deptMap[dept][sm])deptMap[dept][sm]={RAC:0,RAC_amt:0,LAC_qty:0,LAC:0,CAC_qty:0,CAC:0,_ords:0,_custs:new Set(),_newCusts:new Set()};return deptMap[dept][sm];};
+  // orders + customers (valid only)
+  Object.keys(orphan).forEach(code=>{if(!valid.has(code))return;const o=orphan[code];const p=ens(o.dept,o.sm);p._ords++;if(o.cust)p._custs.add(o.cust);});
+  // amounts / quantities
+  detailData.forEach(d=>{const code=d['Order Code'];if(!valid.has(code))return;const pl=getPL(d['Category Code']);if(!pl)return;const o=orphan[code];const p=ens(o.dept,o.sm);const qty=parseFloat(d['Quantity'])||0,amt=parseFloat(d['Final Sub Total Without Tax'])||0;if(pl==='RAC'){p.RAC+=qty;p.RAC_amt+=amt;}else if(pl==='LAC'){p.LAC_qty+=qty;p.LAC+=amt;}else if(pl==='CAC'){p.CAC_qty+=qty;p.CAC+=amt;}});
+  // new L&CAC customers (only if the basic-info file is loaded)
+  if(custInfoLoaded){
+    const orderLines={};
+    detailData.forEach(d=>{const code=d['Order Code'];if(!valid.has(code))return;const pl=getPL(d['Category Code']);if(!pl)return;(orderLines[code]=orderLines[code]||{})[pl]=true;});
+    Object.keys(orphan).forEach(code=>{if(!valid.has(code))return;const o=orphan[code];const lines=orderLines[code]||{};if(!(lines['LAC']||lines['CAC']))return;const nc=normCust(o.cust);if(nc&&custFirstMonth[nc]===month)ens(o.dept,o.sm)._newCusts.add(nc);});
+  }
+  const depts=Object.keys(deptMap).sort().map(dept=>({
+    dept,
+    people:Object.keys(deptMap[dept]).sort().map(sm=>({name:sm,prog:deptMap[dept][sm]}))
+  }));
+  return{depts};
+}
+
+function renderOther(){
+  const el=document.getElementById('report-body');
+  if(!salesData||!detailData){el.innerHTML='<div class="empty">📋 Upload data first</div>';return;}
+  const month=document.getElementById('filter-month').value;
+  if(!month||month==='—'){el.innerHTML='<div class="empty">Select a month</div>';return;}
+  const excDel=document.getElementById('excDel').checked,excLS=document.getElementById('excLS').checked,excNE=document.getElementById('excNE').checked;
+  const schema=getSchema(month);
+  const{depts}=computeOther(month,excDel,excLS,excNE);
+  const custCell=n=>n?`<td class="num">${n}</td>`:`<td class="num" style="color:#ccc">—</td>`;
+  // progress value per metric (no target). CUST = new L&CAC customer count.
+  const aggVal=(arr,m)=>{if(m.src==='CUST'){if(!custInfoLoaded)return null;const u=new Set();arr.forEach(p=>{if(p._newCusts)p._newCusts.forEach(c=>u.add(c));});return u.size;}let s=0;arr.forEach(p=>{const v=metricProg(p,m);if(v!==null)s+=v;});return s;};
+  const pCell=(v,m)=>v===null?'<td class="num" style="color:#B8860B" title="Upload Customer Basic Info to compute L&CAC Cus">⤒ file</td>':(!v?'<td class="num">—</td>':`<td class="num">${fmtByUnit(v,m.unit)}</td>`);
+  const allProg=[];depts.forEach(d=>d.people.forEach(x=>allProg.push(x.prog)));
+  const sumOrds=arr=>arr.reduce((a,p)=>a+(p._ords||0),0);
+  const unionCust=arr=>{const s=new Set();arr.forEach(p=>p._custs.forEach(c=>s.add(c)));return s.size;};
+  let rows='';
+  if(!depts.length){
+    rows=`<tr class="row-total"><td class="num" style="font-size:11px;color:#888">${month}</td><td class="lft">∑ Other Dept Total</td>${custCell(0)}${custCell(0)}${schema.map(m=>pCell(0,m)).join('')}</tr>`;
+  }else{
+    rows=`<tr class="row-total"><td class="num" style="font-size:11px;color:#888">${month}</td><td class="lft">∑ Other Dept Total</td>${custCell(sumOrds(allProg))}${custCell(unionCust(allProg))}${schema.map(m=>pCell(aggVal(allProg,m),m)).join('')}</tr>`;
+    depts.forEach(d=>{
+      const dp=d.people.map(x=>x.prog);
+      rows+=`<tr class="row-group"><td class="num" style="font-size:11px;color:#888">${month}</td><td class="lft">◆ ${esc(d.dept)}</td>${custCell(sumOrds(dp))}${custCell(unionCust(dp))}${schema.map(m=>pCell(aggVal(dp,m),m)).join('')}</tr>`;
+      d.people.forEach(x=>{
+        rows+=`<tr><td class="num" style="font-size:11px;color:#888">${month}</td><td class="lft" style="padding-left:2.4rem;font-size:12px">${esc(x.name)}</td>${custCell(x.prog._ords||0)}${custCell(x.prog._custs.size)}${schema.map(m=>pCell(metricProg(x.prog,m),m)).join('')}</tr>`;
+      });
+    });
+  }
+  const fb=[];if(excDel)fb.push('Deleted excluded');if(excLS)fb.push('Lock Stock/Inner Use excluded');if(excNE)fb.push('Not-Exist excluded');
+  const fbadge=fb.length?`<span class="badge amber" style="margin-left:8px">${fb.join(' · ')}</span>`:'';
+  const totalOrders=sumOrds(allProg);
+  el.innerHTML=`
+    <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:12px">
+      <div style="font-size:13px;color:#888;display:flex;align-items:center;flex-wrap:wrap;gap:6px">
+        <strong style="color:#111">Other Dept</strong> · <span class="badge blue">${month}</span>${fbadge} · ${totalOrders} orders
+        · <span style="font-size:12px;color:#aaa">no target — salesman not in any roster</span>
+      </div>
+      <div style="display:flex;gap:8px">
+        <button class="btn blue" id="png-btn" onclick="exportPNG()">🖼 Export PNG</button>
+        <button class="btn" onclick="exportOtherCSV()">📄 Export CSV</button>
+      </div>
+    </div>
+    <div id="capture" style="background:#fff;border-radius:10px;border:1px solid #e5e5e5;overflow:hidden">
+      <div style="padding:12px 16px 10px;border-bottom:1px solid #eee;display:flex;align-items:center;justify-content:space-between;background:#fff">
+        <div><div style="font-size:14px;font-weight:600">Other Dept — Sales Performance (no target)</div><div style="font-size:11px;color:#aaa;margin-top:2px">Month: ${month} · ${new Date().toLocaleDateString('zh-CN')} · ${fb.join(' / ')||'All orders included'}</div></div>
+        <div style="font-size:12px;color:#bbb;font-weight:500">GREE Mexico</div>
+      </div>
+      <div style="overflow-x:auto"><table class="rtable">
+        <thead><tr>
+          <th style="width:46px">Month</th>
+          <th style="text-align:left;min-width:200px">Other Dept</th>
+          <th style="font-size:11px">Orders</th>
+          <th style="font-size:11px">Cust.</th>
+          ${schema.map((m,i)=>`<th style="font-size:11px;background:${['#faf5ec','#ecf3fa','#ecfaf4','#f0eaf8','#eef4fb','#faecec'][i%6]}">${esc(m.label)} (${m.unit==='qty'?'QTY':'AMT'})</th>`).join('')}
+        </tr></thead><tbody>${rows}</tbody>
+      </table></div>
+    </div>`;
+}
+
+function exportOtherCSV(){
+  const month=document.getElementById('filter-month').value;
+  if(!salesData||!month||month==='—')return;
+  const excDel=document.getElementById('excDel').checked,excLS=document.getElementById('excLS').checked,excNE=document.getElementById('excNE').checked;
+  const schema=getSchema(month);
+  const{depts}=computeOther(month,excDel,excLS,excNE);
+  const fmtV=(v,m)=>v===null?'':(m.unit==='qty'?Number(v).toFixed(0):Number(v).toFixed(2));
+  const aggVal=(arr,m)=>{if(m.src==='CUST'){if(!custInfoLoaded)return null;const u=new Set();arr.forEach(p=>{if(p._newCusts)p._newCusts.forEach(c=>u.add(c));});return u.size;}let s=0;arr.forEach(p=>{const v=metricProg(p,m);if(v!==null)s+=v;});return s;};
+  const sumOrds=arr=>arr.reduce((a,p)=>a+(p._ords||0),0);
+  const unionCust=arr=>{const s=new Set();arr.forEach(p=>p._custs.forEach(c=>s.add(c)));return s.size;};
+  const metricCols=schema.map(m=>`${m.label}(${m.unit==='qty'?'QTY':'AMT'})`).join(',');
+  let csv=`Month,Dept,Salesman,Orders,Customers,${metricCols}\n`;
+  const allProg=[];depts.forEach(d=>d.people.forEach(x=>allProg.push(x.prog)));
+  csv+=`${month},"Other Dept Total",,${sumOrds(allProg)},${unionCust(allProg)},${schema.map(m=>fmtV(aggVal(allProg,m),m)).join(',')}\n`;
+  depts.forEach(d=>{
+    const dp=d.people.map(x=>x.prog);
+    csv+=`${month},"${d.dept}","(subtotal)",${sumOrds(dp)},${unionCust(dp)},${schema.map(m=>fmtV(aggVal(dp,m),m)).join(',')}\n`;
+    d.people.forEach(x=>{csv+=`${month},"${d.dept}","${x.name}",${x.prog._ords||0},${x.prog._custs.size},${schema.map(m=>fmtV(metricProg(x.prog,m),m)).join(',')}\n`;});
+  });
+  const blob=new Blob(['\uFEFF'+csv],{type:'text/csv;charset=utf-8'});
+  const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=`other_dept_${month}.csv`;a.click();
 }
 
 // ── Report ─────────────────────────────────────────────────────
@@ -900,6 +1052,8 @@ function renderReport(){
   syncBD();  // refresh branch list for this month
   const month=document.getElementById('filter-month').value;
   const bn=document.getElementById('filter-branch').value;
+  if(bn==='__SUMMARY__'){renderSummary();return;}
+  if(bn==='__OTHER__'){renderOther();return;}
   const excDel=document.getElementById('excDel').checked,excLS=document.getElementById('excLS').checked,excNE=document.getElementById('excNE').checked;
   if(!month||month==='—'){document.getElementById('report-body').innerHTML='<div class="empty">Select a month</div>';return;}
   const{prog,orderCount,remapped,bData}=computeP(month,bn,excDel,excLS,excNE);
@@ -985,7 +1139,9 @@ function exportPNG(){
     el.style.width=prevWidth;
     el.style.maxWidth=prevMaxWidth;
     const a=document.createElement('a');
-    a.download=`sales_${document.getElementById('filter-branch').value.replace(/\s/g,'_')}_${document.getElementById('filter-month').value}.png`;
+    const bnv=document.getElementById('filter-branch').value;
+    const bnClean=bnv==='__OTHER__'?'Other_Dept':bnv.replace(/\s/g,'_');
+    a.download=`sales_${bnClean}_${document.getElementById('filter-month').value}.png`;
     a.href=c.toDataURL('image/png');a.click();btn.innerHTML=orig;btn.disabled=false;
   }).catch(err=>{
     if(wrapper) wrapper.style.overflowX=prevOverflow;
@@ -1016,24 +1172,15 @@ function exportCSV(){
   const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=`sales_${bn.replace(/\s/g,'_')}_${month}.csv`;a.click();
 }
 
-// ── Branch Summary ─────────────────────────────────────────────
-function syncSumMonths(){
-  if(!salesData) return;
-  const ms=[...new Set(salesData.map(getMonth).filter(Boolean))].sort().reverse();
-  const sel=document.getElementById('sum-month');
-  const cur=sel.value;
-  sel.innerHTML=ms.map(m=>`<option value="${m}">${m}</option>`).join('');
-  if(cur && ms.includes(cur)) sel.value=cur;
-}
-
+// ── Branch Summary (rendered inside Report when Branch = All Branches Summary) ──
 function renderSummary(){
-  const el=document.getElementById('summary-body');
+  const el=document.getElementById('report-body');
   if(!salesData||!detailData){el.innerHTML='<div class="empty">📋 Upload data first</div>';return;}
-  const month=document.getElementById('sum-month').value;
+  const month=document.getElementById('filter-month').value;
   if(!month||month==='—'){el.innerHTML='<div class="empty">Select a month</div>';return;}
-  const excDel=document.getElementById('sumExcDel').checked;
-  const excLS=document.getElementById('sumExcLS').checked;
-  const excNE=document.getElementById('sumExcNE').checked;
+  const excDel=document.getElementById('excDel').checked;
+  const excLS=document.getElementById('excLS').checked;
+  const excNE=document.getElementById('excNE').checked;
   const mt=cloudTargets[month]||{};
   const schema=getSchema(month);
   const monthRoster=cloudRosters[month]||cloudRosters[prevMonthStr(month)]||null;
@@ -1169,6 +1316,10 @@ function renderSummary(){
         · ${gtOrders} orders · ${gtRacCust} RAC cust. · ${gtLacCacCust} LAC/CAC cust.
         · <span style="font-size:12px;color:#aaa">vs ${prev}</span>
       </div>
+      <div style="display:flex;gap:8px">
+        <button class="btn blue" id="sum-png-btn" onclick="exportSummaryPNG()">🖼 Export PNG</button>
+        <button class="btn" onclick="exportSummaryCSV()">📄 Export CSV</button>
+      </div>
     </div>
     <div id="sum-capture" style="background:#fff;border-radius:10px;border:1px solid #e5e5e5;overflow:hidden">
       <div style="padding:12px 16px 10px;border-bottom:1px solid #eee;display:flex;align-items:center;justify-content:space-between;background:#fff">
@@ -1249,7 +1400,7 @@ function exportSummaryPNG(){
     el.style.width=prevWidth;
     el.style.maxWidth=prevMaxWidth;
     const a=document.createElement('a');
-    a.download=`branch_summary_${document.getElementById('sum-month').value}.png`;
+    a.download=`branch_summary_${document.getElementById('filter-month').value}.png`;
     a.href=c.toDataURL('image/png');a.click();btn.innerHTML=orig;btn.disabled=false;
   }).catch(err=>{
     if(wrapper) wrapper.style.overflowX=prevOverflow;
@@ -1260,9 +1411,9 @@ function exportSummaryPNG(){
 }
 
 function exportSummaryCSV(){
-  const month=document.getElementById('sum-month').value;
+  const month=document.getElementById('filter-month').value;
   if(!salesData||!month||month==='—')return;
-  const excDel=document.getElementById('sumExcDel').checked,excLS=document.getElementById('sumExcLS').checked,excNE=document.getElementById('sumExcNE').checked;
+  const excDel=document.getElementById('excDel').checked,excLS=document.getElementById('excLS').checked,excNE=document.getElementById('excNE').checked;
   const mt=cloudTargets[month]||{};
   const schema=getSchema(month);
   const monthRoster=cloudRosters[month]||cloudRosters[prevMonthStr(month)]||null;
