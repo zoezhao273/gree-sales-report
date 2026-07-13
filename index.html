@@ -181,14 +181,14 @@ tr.drag-over td{border-top:2px solid #378ADD}
         <div class="card-head">
           <div>
             <div class="card-title">Upload Collection Doc <span class="badge blue" style="margin-left:4px">for Collection Report</span></div>
-            <div class="card-sub">Excel with columns <strong>Doc Date</strong>, <strong>Department</strong>, <strong>Debit Amt in FC</strong>. Used for daily collection reporting.</div>
+            <div class="card-sub">Collection voucher import template — main table on top, detail sub-table below, separated by a blank row. Main table must contain <strong>DocDate</strong>, <strong>ResponsibleDept.</strong>, <strong>AmtinFC</strong>. Only the main table is read.</div>
           </div>
           <button class="btn sm" id="clear-coll-btn" onclick="clearCollFile()" disabled>✕ Clear</button>
         </div>
         <div class="upload-zone" id="drop-zone3" onclick="document.getElementById('fi3').click()">
           <div class="uz-icon">💰</div>
           <div class="uz-main">Click to upload or drag &amp; drop</div>
-          <div class="uz-sub">Collection_Doc_Listing_Report.xlsx</div>
+          <div class="uz-sub">CustomerCollectionDoc.xlsx</div>
           <div class="uz-status" id="dz3-status"></div>
         </div>
         <input type="file" id="fi3" accept=".xlsx,.xls" style="display:none" onchange="handleCollFile(this)">
@@ -643,7 +643,11 @@ function handleCollFile(inp){
   rd.onload=e=>{
     try{
       const wb=XLSX.read(new Uint8Array(e.target.result),{type:'array',cellDates:true});
-      const rows=XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]],{defval:''});
+      // New import template = two stacked tables (main table on top, detail sub-table
+      // below) separated by ONE blank row. We read the sheet as a raw grid, locate the
+      // MAIN-table header row, then take data rows until the blank separator — the
+      // sub-table below it is intentionally ignored.
+      const aoa=XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]],{header:1,defval:''});
       const norm=s=>String(s==null?'':s).trim();
       const pad=n=>String(n).padStart(2,'0');
       const toYMD=v=>{
@@ -651,16 +655,40 @@ function handleCollFile(inp){
         if(typeof v==='number'&&isFinite(v)){const dt=new Date(Math.round((v-25569)*86400000));if(!isNaN(dt))return dt.getUTCFullYear()+'-'+pad(dt.getUTCMonth()+1)+'-'+pad(dt.getUTCDate());}
         const s=norm(v);let m=s.match(/(\d{4})-(\d{2})-(\d{2})/);if(m)return m[1]+'-'+m[2]+'-'+m[3];m=s.match(/^(\d{2})[-/](\d{2})[-/](\d{4})$/);if(m)return m[3]+'-'+m[2]+'-'+m[1];return '';
       };
-      collectionData=rows.map(r=>({
-        date:toYMD(r['Doc Date']),
-        dept:norm(r['Department'])||'(No Dept)',
-        amt:parseFloat(String(r['Debit Amt in FC']).replace(/,/g,''))||0
-      })).filter(r=>r.date);
+      const rowEmpty=row=>!row||row.every(c=>norm(c)==='');
+      // Find a header row that carries all required labels. Preferred = new template
+      // (DocDate / ResponsibleDept. / AmtinFC); fallback = legacy flat template.
+      const findCols=labels=>{
+        for(let r=0;r<aoa.length;r++){
+          const cells=aoa[r].map(norm),idx={};let ok=true;
+          for(const k in labels){const i=cells.indexOf(labels[k]);if(i<0){ok=false;break;}idx[k]=i;}
+          if(ok)return{hdr:r,idx};
+        }
+        return null;
+      };
+      let mode='new';
+      let hit=findCols({date:'DocDate',dept:'ResponsibleDept.',amt:'AmtinFC'});
+      if(!hit){mode='legacy';hit=findCols({date:'Doc Date',dept:'Department',amt:'Debit Amt in FC'});}
+      if(!hit){alert('无法识别收款单模版列。\n\n新模版主表需包含表头列：DocDate、ResponsibleDept.、AmtinFC。');return;}
+      const{hdr,idx}=hit,out=[];
+      for(let r=hdr+1;r<aoa.length;r++){
+        const row=aoa[r];
+        if(rowEmpty(row))break;                       // blank line → main table ends here (drop sub-table)
+        if(/^"?bodys[,"]/.test(norm(row[0])))break;   // safety net: detail sub-table schema marker
+        const date=toYMD(row[idx.date]);
+        if(!date)continue;                            // skip rows without a usable Doc Date
+        out.push({
+          date,
+          dept:norm(row[idx.dept])||'(No Dept)',
+          amt:parseFloat(String(row[idx.amt]).replace(/,/g,''))||0
+        });
+      }
+      collectionData=out;
       const dates=collectionData.map(r=>r.date).sort();
       const dmin=dates[0]||'', dmax=dates[dates.length-1]||'';
       populateCollMonths();
       const ds=document.getElementById('dz3-status');
-      ds.innerHTML=`<div class="uz-fname">📄 ${esc(f.name)}</div><div class="uz-fres">${collectionData.length} docs · ${dmin} → ${dmax}</div>`;
+      ds.innerHTML=`<div class="uz-fname">📄 ${esc(f.name)}</div><div class="uz-fres">${collectionData.length} docs · ${dmin} → ${dmax}${mode==='legacy'?' <span style="color:#999">(legacy template)</span>':''}</div>`;
       ds.style.display='block';
       document.getElementById('coll-result').innerHTML=`<div style="text-align:right"><button class="btn sm primary" onclick="switchTab('collection')">View Collection →</button></div>`;
       document.getElementById('clear-coll-btn').disabled=false;
