@@ -133,7 +133,8 @@ tr.drag-over td{border-top:2px solid #378ADD}
   </div>
 
   <div class="tabs">
-    <button class="tab active" onclick="switchTab('report')">Report</button>
+    <button class="tab" onclick="switchTab('collection')">Collection Report</button>
+    <button class="tab active" onclick="switchTab('report')">Sales Report</button>
     <button class="tab" onclick="switchTab('targets')">Target Setup</button>
     <button class="tab" onclick="switchTab('upload')">Upload Data</button>
   </div>
@@ -143,7 +144,7 @@ tr.drag-over td{border-top:2px solid #378ADD}
       <div class="card">
         <div class="card-head">
           <div>
-            <div class="card-title">Upload Sales Order Report</div>
+            <div class="card-title">Upload Sales Order Report <span class="badge blue" style="margin-left:4px">for Sales Report</span></div>
             <div class="card-sub">Excel with "Sales Order" and "Detail Sales Order" sheets</div>
           </div>
           <button class="btn sm" id="clear-sales-btn" onclick="clearSalesFile()" disabled>✕ Clear</button>
@@ -174,6 +175,24 @@ tr.drag-over td{border-top:2px solid #378ADD}
         </div>
         <input type="file" id="fi2" accept=".xlsx,.xls" style="display:none" onchange="handleCustFile(this)">
         <div id="cust-result" style="margin-top:10px"></div>
+      </div>
+
+      <div class="card">
+        <div class="card-head">
+          <div>
+            <div class="card-title">Upload Collection Doc <span class="badge blue" style="margin-left:4px">for Collection Report</span></div>
+            <div class="card-sub">Excel with columns <strong>Doc Date</strong>, <strong>Department</strong>, <strong>Debit Amt in FC</strong>. Used for daily collection reporting.</div>
+          </div>
+          <button class="btn sm" id="clear-coll-btn" onclick="clearCollFile()" disabled>✕ Clear</button>
+        </div>
+        <div class="upload-zone" id="drop-zone3" onclick="document.getElementById('fi3').click()">
+          <div class="uz-icon">💰</div>
+          <div class="uz-main">Click to upload or drag &amp; drop</div>
+          <div class="uz-sub">Collection_Doc_Listing_Report.xlsx</div>
+          <div class="uz-status" id="dz3-status"></div>
+        </div>
+        <input type="file" id="fi3" accept=".xlsx,.xls" style="display:none" onchange="handleCollFile(this)">
+        <div id="coll-result" style="margin-top:10px"></div>
       </div>
     </div>
   </div>
@@ -212,6 +231,13 @@ tr.drag-over td{border-top:2px solid #378ADD}
     <div id="unified-editor"><div class="empty"><span class="spinner" style="width:18px;height:18px;border-width:3px"></span><br><br>Loading from Google Sheets…</div></div>
     <button class="btn" style="width:100%;justify-content:center;margin-bottom:1rem" onclick="addBranch()">🏢 Add branch</button>
     <div id="save-msg"></div>
+  </div>
+
+  <div id="tab-collection" style="display:none">
+    <div class="filters">
+      <div class="fg"><div class="fl">Month</div><select id="coll-month" onchange="renderCollection()"><option>—</option></select></div>
+    </div>
+    <div id="coll-body"><div class="empty">📋 Upload a Collection Doc file and select a month</div></div>
   </div>
 
   <div id="tab-report" style="display:none">
@@ -276,6 +302,7 @@ const DEF_ROSTER = [
 let cloudRosters = {};   // per-month rosters (replaces global roster)
 let cloudTargets = {};
 let salesData = null, detailData = null;
+let collectionData = null;   // [{date:'yyyy-mm-dd', dept, amt}]
 let cw = loadCW();
 let dragSrc=null,dragBi=null,dragPi=null,resizing=null;
 
@@ -494,12 +521,13 @@ async function saveAll(){
 
 // ── Tabs ───────────────────────────────────────────────────────
 function switchTab(t){
-  ['report','targets','upload'].forEach((n,i)=>{
+  ['collection','report','targets','upload'].forEach((n,i)=>{
     document.getElementById('tab-'+n).style.display=n===t?'':'none';
     document.querySelectorAll('.tab')[i].classList.toggle('active',n===t);
   });
   if(t==='targets') renderEditor();
   if(t==='report'){syncBD();renderReport();}
+  if(t==='collection'){populateCollMonths();renderCollection();}
 }
 switchTab('upload');
 
@@ -606,6 +634,55 @@ function clearCustFile(){
   const ds2=document.getElementById('dz2-status');if(ds2){ds2.innerHTML='';ds2.style.display='none';}
   document.getElementById('clear-cust-btn').disabled=true;
   if(document.getElementById('tab-report').style.display!=='none') renderReport();
+}
+
+// ── Collection Doc upload ──────────────────────────────────────
+function handleCollFile(inp){
+  const f=inp.files[0];if(!f)return;
+  const rd=new FileReader();
+  rd.onload=e=>{
+    try{
+      const wb=XLSX.read(new Uint8Array(e.target.result),{type:'array',cellDates:true});
+      const rows=XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]],{defval:''});
+      const norm=s=>String(s==null?'':s).trim();
+      const pad=n=>String(n).padStart(2,'0');
+      const toYMD=v=>{
+        if(v instanceof Date&&!isNaN(v))return v.getFullYear()+'-'+pad(v.getMonth()+1)+'-'+pad(v.getDate());
+        if(typeof v==='number'&&isFinite(v)){const dt=new Date(Math.round((v-25569)*86400000));if(!isNaN(dt))return dt.getUTCFullYear()+'-'+pad(dt.getUTCMonth()+1)+'-'+pad(dt.getUTCDate());}
+        const s=norm(v);let m=s.match(/(\d{4})-(\d{2})-(\d{2})/);if(m)return m[1]+'-'+m[2]+'-'+m[3];m=s.match(/^(\d{2})[-/](\d{2})[-/](\d{4})$/);if(m)return m[3]+'-'+m[2]+'-'+m[1];return '';
+      };
+      collectionData=rows.map(r=>({
+        date:toYMD(r['Doc Date']),
+        dept:norm(r['Department'])||'(No Dept)',
+        amt:parseFloat(String(r['Debit Amt in FC']).replace(/,/g,''))||0
+      })).filter(r=>r.date);
+      const dates=collectionData.map(r=>r.date).sort();
+      const dmin=dates[0]||'', dmax=dates[dates.length-1]||'';
+      populateCollMonths();
+      const ds=document.getElementById('dz3-status');
+      ds.innerHTML=`<div class="uz-fname">📄 ${esc(f.name)}</div><div class="uz-fres">${collectionData.length} docs · ${dmin} → ${dmax}</div>`;
+      ds.style.display='block';
+      document.getElementById('coll-result').innerHTML=`<div style="text-align:right"><button class="btn sm primary" onclick="switchTab('collection')">View Collection →</button></div>`;
+      document.getElementById('clear-coll-btn').disabled=false;
+      if(document.getElementById('tab-collection').style.display!=='none') renderCollection();
+    }catch(err){alert('Error reading Collection Doc: '+err.message);}
+  };
+  rd.readAsArrayBuffer(f);
+}
+function clearCollFile(){
+  collectionData=null;
+  const fi3=document.getElementById('fi3');if(fi3)fi3.value='';
+  document.getElementById('coll-result').innerHTML='';
+  const ds3=document.getElementById('dz3-status');if(ds3){ds3.innerHTML='';ds3.style.display='none';}
+  document.getElementById('clear-coll-btn').disabled=true;
+  document.getElementById('coll-month').innerHTML='<option>—</option>';
+  if(document.getElementById('tab-collection').style.display!=='none') renderCollection();
+}
+const dz3=document.getElementById('drop-zone3');
+if(dz3){
+  dz3.addEventListener('dragover',e=>{e.preventDefault();dz3.classList.add('drag')});
+  dz3.addEventListener('dragleave',()=>dz3.classList.remove('drag'));
+  dz3.addEventListener('drop',e=>{e.preventDefault();dz3.classList.remove('drag');const f=e.dataTransfer.files[0];if(f){const i=document.getElementById('fi3');const dt=new DataTransfer();dt.items.add(f);i.files=dt.files;handleCollFile(i);}});
 }
 
 function getMonth(r){const d=r['Order Date']||'';const m=String(d).match(/(\d{4})-(\d{2})/)||String(d).match(/(\d{2})-(\d{2})-(\d{4})/);if(!m)return'';return String(d).match(/^\d{2}-\d{2}-\d{4}$/)?m[3]+'-'+m[2]:m[1]+'-'+m[2];}
@@ -961,7 +1038,15 @@ function computeOther(month,excDel,excLS,excNE){
     dept,
     people:Object.keys(deptMap[dept]).sort().map(sm=>({name:sm,prog:deptMap[dept][sm]}))
   }));
-  return{depts};
+  // ── Aggregate totals for the Branch Summary "Other Dept" row ──
+  const orderLinesAll={};
+  detailData.forEach(d=>{const code=d['Order Code'];if(!valid.has(code))return;const pl=getPL(d['Category Code']);if(!pl)return;(orderLinesAll[code]=orderLinesAll[code]||{})[pl]=true;});
+  const custAll=new Set(),racCust=new Set(),lccCust=new Set();
+  const tp={RAC:0,RAC_amt:0,LAC_qty:0,LAC:0,CAC_qty:0,CAC:0};let orders_n=0;
+  Object.keys(orphan).forEach(code=>{if(!valid.has(code))return;orders_n++;const o=orphan[code];const c=o.cust;const lines=orderLinesAll[code]||{};if(c){custAll.add(c);if(lines['RAC'])racCust.add(c);if(lines['LAC']||lines['CAC'])lccCust.add(c);}});
+  Object.values(deptMap).forEach(smd=>Object.values(smd).forEach(p=>{tp.RAC+=p.RAC;tp.RAC_amt+=p.RAC_amt;tp.LAC_qty+=p.LAC_qty;tp.LAC+=p.LAC;tp.CAC_qty+=p.CAC_qty;tp.CAC+=p.CAC;}));
+  const agg={orders:orders_n,custCount:custAll.size,racCust:racCust.size,lacCacCust:lccCust.size,tp};
+  return{depts,agg};
 }
 
 function renderOther(){
@@ -981,14 +1066,12 @@ function renderOther(){
   const unionCust=arr=>{const s=new Set();arr.forEach(p=>p._custs.forEach(c=>s.add(c)));return s.size;};
   let rows='';
   if(!depts.length){
-    rows=`<tr class="row-total"><td class="num" style="font-size:11px;color:#888">${month}</td><td class="lft">∑ Other Dept Total</td>${custCell(0)}${custCell(0)}${schema.map(m=>pCell(0,m)).join('')}</tr>`;
+    rows=`<tr class="row-total"><td class="num" style="font-size:11px;color:#888">${month}</td><td class="lft" colspan="2">∑ Other Dept Total</td>${custCell(0)}${custCell(0)}${schema.map(m=>pCell(0,m)).join('')}</tr>`;
   }else{
-    rows=`<tr class="row-total"><td class="num" style="font-size:11px;color:#888">${month}</td><td class="lft">∑ Other Dept Total</td>${custCell(sumOrds(allProg))}${custCell(unionCust(allProg))}${schema.map(m=>pCell(aggVal(allProg,m),m)).join('')}</tr>`;
+    rows=`<tr class="row-total"><td class="num" style="font-size:11px;color:#888">${month}</td><td class="lft" colspan="2">∑ Other Dept Total</td>${custCell(sumOrds(allProg))}${custCell(unionCust(allProg))}${schema.map(m=>pCell(aggVal(allProg,m),m)).join('')}</tr>`;
     depts.forEach(d=>{
-      const dp=d.people.map(x=>x.prog);
-      rows+=`<tr class="row-group"><td class="num" style="font-size:11px;color:#888">${month}</td><td class="lft">◆ ${esc(d.dept)}</td>${custCell(sumOrds(dp))}${custCell(unionCust(dp))}${schema.map(m=>pCell(aggVal(dp,m),m)).join('')}</tr>`;
       d.people.forEach(x=>{
-        rows+=`<tr><td class="num" style="font-size:11px;color:#888">${month}</td><td class="lft" style="padding-left:2.4rem;font-size:12px">${esc(x.name)}</td>${custCell(x.prog._ords||0)}${custCell(x.prog._custs.size)}${schema.map(m=>pCell(metricProg(x.prog,m),m)).join('')}</tr>`;
+        rows+=`<tr><td class="num" style="font-size:11px;color:#888">${month}</td><td class="lft" style="font-size:12px;color:#666">${esc(d.dept)}</td><td class="lft" style="font-size:12px">${esc(x.name)}</td>${custCell(x.prog._ords||0)}${custCell(x.prog._custs.size)}${schema.map(m=>pCell(metricProg(x.prog,m),m)).join('')}</tr>`;
       });
     });
   }
@@ -1014,7 +1097,8 @@ function renderOther(){
       <div style="overflow-x:auto"><table class="rtable">
         <thead><tr>
           <th style="width:46px">Month</th>
-          <th style="text-align:left;min-width:200px">Other Dept</th>
+          <th style="text-align:left;min-width:150px">Dept</th>
+          <th style="text-align:left;min-width:150px">Salesman</th>
           <th style="font-size:11px">Orders</th>
           <th style="font-size:11px">Cust.</th>
           ${schema.map((m,i)=>`<th style="font-size:11px;background:${['#faf5ec','#ecf3fa','#ecfaf4','#f0eaf8','#eef4fb','#faecec'][i%6]}">${esc(m.label)} (${m.unit==='qty'?'QTY':'AMT'})</th>`).join('')}
@@ -1036,10 +1120,8 @@ function exportOtherCSV(){
   const metricCols=schema.map(m=>`${m.label}(${m.unit==='qty'?'QTY':'AMT'})`).join(',');
   let csv=`Month,Dept,Salesman,Orders,Customers,${metricCols}\n`;
   const allProg=[];depts.forEach(d=>d.people.forEach(x=>allProg.push(x.prog)));
-  csv+=`${month},"Other Dept Total",,${sumOrds(allProg)},${unionCust(allProg)},${schema.map(m=>fmtV(aggVal(allProg,m),m)).join(',')}\n`;
+  csv+=`${month},"","Other Dept Total",${sumOrds(allProg)},${unionCust(allProg)},${schema.map(m=>fmtV(aggVal(allProg,m),m)).join(',')}\n`;
   depts.forEach(d=>{
-    const dp=d.people.map(x=>x.prog);
-    csv+=`${month},"${d.dept}","(subtotal)",${sumOrds(dp)},${unionCust(dp)},${schema.map(m=>fmtV(aggVal(dp,m),m)).join(',')}\n`;
     d.people.forEach(x=>{csv+=`${month},"${d.dept}","${x.name}",${x.prog._ords||0},${x.prog._custs.size},${schema.map(m=>fmtV(metricProg(x.prog,m),m)).join(',')}\n`;});
   });
   const blob=new Blob(['\uFEFF'+csv],{type:'text/csv;charset=utf-8'});
@@ -1303,6 +1385,20 @@ function renderSummary(){
     </tr>`;
   });
 
+  // ── Other Dept row (salesmen not in any roster; no target) ──
+  const otherCur=computeOther(month,excDel,excLS,excNE).agg;
+  const otherPrev=computeOther(prev,excDel,excLS,excNE).agg;
+  const otherYT={RAC:0,RAC_amt:0,LAC_qty:0,LAC:0,CAC_qty:0,CAC:0};
+  ytdMonths.forEach(ym=>{const a=computeOther(ym,excDel,excLS,excNE).agg.tp;Object.keys(otherYT).forEach(k=>otherYT[k]+=a[k]||0);});
+  const noTgt={RAC:0,LAC:0,CAC:0};
+  rows+=`<tr>
+    <td class="lft">Other Dept</td>
+    ${cntCell(otherCur.orders)}${cntCell(otherCur.racCust)}
+    ${racCols(otherCur.tp,otherPrev.tp,noTgt)}${cntCell(otherCur.lacCacCust)}${lacCols(otherCur.tp,otherPrev.tp,noTgt)}${cacCols(otherCur.tp,otherPrev.tp,noTgt)}
+    ${totalCols(otherCur.tp)}
+    ${ytdCols(otherYT)}
+  </tr>`;
+
   const fb=[];if(excDel)fb.push('Deleted excluded');if(excLS)fb.push('Lock Stock excluded');if(excNE)fb.push('Not-Exist excluded');
   const fbadge=fb.length?`<span class="badge amber" style="margin-left:8px">${fb.join(' · ')}</span>`:'';
   const th=bg=>`style="font-size:11px;background:${bg}"`;
@@ -1449,8 +1545,106 @@ function exportSummaryCSV(){
   let csv=`Month,Branch,Orders,RAC Customers,RAC Target(qty),RAC Qty,RAC Amt,RAC Achv%,RAC Qty(${prev}),RAC MoM%,LAC/CAC Customers,LAC Target,LAC Qty,LAC Amt,LAC Achv%,LAC Amt(${prev}),LAC MoM%,CAC Target,CAC Qty,CAC Amt,CAC Achv%,CAC Amt(${prev}),CAC MoM%,Total Qty,Total Amt,YTD RAC Qty,YTD RAC Amt,YTD LAC Qty,YTD LAC Amt,YTD CAC Qty,YTD CAC Amt,YTD Total Qty,YTD Total Amt\n`;
   csv+=`${month},ALL BRANCHES,${gtO},${gtRacCust},${gtt.RAC||0},${gtp.RAC.toFixed(0)},${gtp.RAC_amt.toFixed(2)},${ps(gtp.RAC,gtt.RAC)},${gpp.RAC.toFixed(0)},${mm(gtp.RAC,gpp.RAC)},${gtLacCacCust},${gtt.LAC||0},${gtp.LAC_qty.toFixed(0)},${gtp.LAC.toFixed(2)},${ps(gtp.LAC,gtt.LAC)},${gpp.LAC.toFixed(2)},${mm(gtp.LAC,gpp.LAC)},${gtt.CAC||0},${gtp.CAC_qty.toFixed(0)},${gtp.CAC.toFixed(2)},${ps(gtp.CAC,gtt.CAC)},${gpp.CAC.toFixed(2)},${mm(gtp.CAC,gpp.CAC)},${gtq},${gta},${gyt.RAC.toFixed(0)},${gyt.RAC_amt.toFixed(2)},${gyt.LAC_qty.toFixed(0)},${gyt.LAC.toFixed(2)},${gyt.CAC_qty.toFixed(0)},${gyt.CAC.toFixed(2)},${gytq},${gyta}\n`;
   csv+=rows.join('\n');
+  // Other Dept row (no target)
+  const oCur=computeOther(month,excDel,excLS,excNE).agg,oPrev=computeOther(prev,excDel,excLS,excNE).agg;
+  const oYT={RAC:0,RAC_amt:0,LAC_qty:0,LAC:0,CAC_qty:0,CAC:0};
+  ytdMonths.forEach(ym=>{const a=computeOther(ym,excDel,excLS,excNE).agg.tp;Object.keys(oYT).forEach(k=>oYT[k]+=a[k]||0);});
+  const ot=oCur.tp,op=oPrev.tp;
+  const otq=(ot.RAC+ot.LAC_qty+ot.CAC_qty).toFixed(0),ota=(ot.RAC_amt+ot.LAC+ot.CAC).toFixed(2);
+  const oytq=(oYT.RAC+oYT.LAC_qty+oYT.CAC_qty).toFixed(0),oyta=(oYT.RAC_amt+oYT.LAC+oYT.CAC).toFixed(2);
+  csv+=`\n${month},"Other Dept",${oCur.orders},${oCur.racCust},,${ot.RAC.toFixed(0)},${ot.RAC_amt.toFixed(2)},,${op.RAC.toFixed(0)},${mm(ot.RAC,op.RAC)},${oCur.lacCacCust},,${ot.LAC_qty.toFixed(0)},${ot.LAC.toFixed(2)},,${op.LAC.toFixed(2)},${mm(ot.LAC,op.LAC)},,${ot.CAC_qty.toFixed(0)},${ot.CAC.toFixed(2)},,${op.CAC.toFixed(2)},${mm(ot.CAC,op.CAC)},${otq},${ota},${oYT.RAC.toFixed(0)},${oYT.RAC_amt.toFixed(2)},${oYT.LAC_qty.toFixed(0)},${oYT.LAC.toFixed(2)},${oYT.CAC_qty.toFixed(0)},${oYT.CAC.toFixed(2)},${oytq},${oyta}`;
   const blob=new Blob(['\uFEFF'+csv],{type:'text/csv;charset=utf-8'});
   const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=`branch_summary_${month}.csv`;a.click();
+}
+
+// ── Collection Report ──────────────────────────────────────────
+function populateCollMonths(){
+  const sel=document.getElementById('coll-month');if(!sel)return;
+  if(!collectionData||!collectionData.length){sel.innerHTML='<option>—</option>';return;}
+  const cur=sel.value;
+  const ms=[...new Set(collectionData.map(r=>r.date.slice(0,7)).filter(Boolean))].sort().reverse();
+  sel.innerHTML=ms.map(m=>`<option value="${m}">${m}</option>`).join('');
+  if(cur&&ms.includes(cur))sel.value=cur; // else defaults to latest month (first option)
+}
+function collDeptOrder(deptSet,month){
+  const roster=cloudRosters[month]||cloudRosters[prevMonthStr(month)]||[];
+  const rosterOrder=roster.map(b=>b.branch);
+  const result=[];
+  rosterOrder.forEach(b=>{if(deptSet.has(b))result.push(b);});              // Target Setup depts, in roster order
+  [...deptSet].filter(d=>!rosterOrder.includes(d)&&d!=='Pending').sort().forEach(d=>result.push(d)); // other depts, alpha
+  if(deptSet.has('Pending'))result.push('Pending');                          // Pending (Finance Dept) last
+  return result;
+}
+function computeCollection(month){
+  const disp=d=>d==='Finance Dept'?'Pending':d;
+  // Latest-Date = the last Doc Date within the selected month (its latest data day).
+  // For the current month this equals the file's last Doc Date (= today).
+  let maxDate='';
+  collectionData.forEach(r=>{if(r.date.slice(0,7)===month&&r.date>maxDate)maxDate=r.date;});
+  const mtd={},day={};let mtdTot=0,dayTot=0;
+  collectionData.forEach(r=>{
+    if(r.date.slice(0,7)!==month)return;
+    const d=disp(r.dept);
+    mtd[d]=(mtd[d]||0)+r.amt;mtdTot+=r.amt;
+    if(r.date===maxDate){day[d]=(day[d]||0)+r.amt;dayTot+=r.amt;}
+  });
+  const deptSet=new Set([...Object.keys(mtd),...Object.keys(day)]);
+  const order=collDeptOrder(deptSet,month);
+  return{maxDate,mtd,day,mtdTot,dayTot,order};
+}
+function renderCollection(){
+  const el=document.getElementById('coll-body');if(!el)return;
+  if(!collectionData||!collectionData.length){el.innerHTML='<div class="empty">💰 Upload a Collection Doc file first</div>';return;}
+  const month=document.getElementById('coll-month').value;
+  if(!month||month==='—'){el.innerHTML='<div class="empty">Select a month</div>';return;}
+  const{maxDate,mtd,day,mtdTot,dayTot,order}=computeCollection(month);
+  const amtCell=v=>(!v)?'<td class="num" style="color:#ccc">—</td>':`<td class="num">${fmtAmt(v)}</td>`;
+  let rows=`<tr class="row-total"><td class="lft" style="font-weight:700">∑ Total</td>${amtCell(mtdTot)}${amtCell(dayTot)}</tr>`;
+  order.forEach(d=>{rows+=`<tr><td class="lft">${esc(d)}</td>${amtCell(mtd[d]||0)}${amtCell(day[d]||0)}</tr>`;});
+  el.innerHTML=`
+    <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:12px">
+      <div style="font-size:13px;color:#888;display:flex;align-items:center;flex-wrap:wrap;gap:6px">
+        <strong style="color:#111">Collection Report</strong> · <span class="badge blue">${month}</span>
+        · MTD total <strong style="color:#111">${fmtAmt(mtdTot)}</strong>
+        · <span class="badge green">Latest-Date ${maxDate}</span> ${fmtAmt(dayTot)}
+      </div>
+      <div style="display:flex;gap:8px">
+        <button class="btn blue" id="coll-cap-png" onclick="exportCollPNG()">🖼 Export PNG</button>
+        <button class="btn" onclick="exportCollCSV()">📄 Export CSV</button>
+      </div>
+    </div>
+    <div id="coll-capture" style="background:#fff;border-radius:10px;border:1px solid #e5e5e5;overflow:hidden">
+      <div style="padding:12px 16px 10px;border-bottom:1px solid #eee;display:flex;align-items:center;justify-content:space-between;background:#fff">
+        <div><div style="font-size:14px;font-weight:600">Collection Report — ${month}</div><div style="font-size:11px;color:#aaa;margin-top:2px">MTD cumulative &amp; latest-date (Latest-Date = ${maxDate}, last Doc Date in ${month}) · amounts in MXN</div></div>
+        <div style="font-size:12px;color:#bbb;font-weight:500">GREE Mexico</div>
+      </div>
+      <div style="overflow-x:auto"><table class="rtable">
+        <thead><tr>
+          <th style="text-align:left;min-width:200px">Department</th>
+          <th style="font-size:11px;background:#ecf3fa;min-width:150px">Month-to-Date (${month})</th>
+          <th style="font-size:11px;background:#ecfaf4;min-width:150px">Latest-Date (${maxDate})</th>
+        </tr></thead><tbody>${rows}</tbody>
+      </table></div>
+    </div>`;
+}
+function exportCollPNG(){
+  const el=document.getElementById('coll-capture');if(!el){alert('No report.');return;}
+  const btn=document.getElementById('coll-cap-png');const orig=btn.innerHTML;btn.innerHTML='⏳ Generating...';btn.disabled=true;
+  html2canvas(el,{scale:2,backgroundColor:'#ffffff',useCORS:true,logging:false}).then(c=>{
+    const a=document.createElement('a');a.download=`collection_${document.getElementById('coll-month').value}.png`;
+    a.href=c.toDataURL('image/png');a.click();btn.innerHTML=orig;btn.disabled=false;
+  }).catch(err=>{alert('Failed: '+err.message);btn.innerHTML=orig;btn.disabled=false;});
+}
+function exportCollCSV(){
+  if(!collectionData||!collectionData.length)return;
+  const month=document.getElementById('coll-month').value;if(!month||month==='—')return;
+  const{maxDate,mtd,day,mtdTot,dayTot,order}=computeCollection(month);
+  const f=v=>Number(v||0).toFixed(2);
+  let csv=`Month,Department,MTD Collection (${month}),Latest-Date Collection (${maxDate})\n`;
+  csv+=`${month},"Total",${f(mtdTot)},${f(dayTot)}\n`;
+  order.forEach(d=>{csv+=`${month},"${d}",${f(mtd[d]||0)},${f(day[d]||0)}\n`;});
+  const blob=new Blob(['\uFEFF'+csv],{type:'text/csv;charset=utf-8'});
+  const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=`collection_${month}.csv`;a.click();
 }
 
 // Init
