@@ -10,7 +10,6 @@
 
 | 名称 | 地址 |
 |------|------|
-| **网页地址** | https://zoezhao273.github.io/greemexico-salesreport2/gree_sales_report2.html |
 | **GitHub 仓库** | https://github.com/zoezhao273/greemexico-salesreport2 |
 
 > 若把新版 HTML 上传覆盖到仓库，链接不变。
