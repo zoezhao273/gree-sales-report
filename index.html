@@ -715,7 +715,19 @@ if(dz3){
 }
 
 function getMonth(r){const d=r['Order Date']||'';const m=String(d).match(/(\d{4})-(\d{2})/)||String(d).match(/(\d{2})-(\d{2})-(\d{4})/);if(!m)return'';return String(d).match(/^\d{2}-\d{2}-\d{4}$/)?m[3]+'-'+m[2]:m[1]+'-'+m[2];}
-function getPL(c){if(!c)return'';const s=String(c);if(s.length>=5){const pl=s.slice(2,5);if(LINES.includes(pl))return pl;}return'';}
+// Product line = the RAC / LAC / CAC segment of Category Code ("1-RAC-01" → RAC).
+// Split on "-" rather than a fixed slice(2,5): the old rule silently broke if the
+// numeric prefix was ever not exactly one digit ("10-RAC-01" would slice to "-RA"
+// and be dropped from all statistics). Segment matching also tolerates a missing
+// prefix ("RAC-01") and stray case/whitespace.
+// Anything else — IST (installation), PAT (parts), ASC/SRV (service), SMP
+// (samples) — returns '' and is excluded from every metric.
+function getPL(c){
+  if(!c)return'';
+  const parts=String(c).split('-');
+  for(const p of parts){const k=p.trim().toUpperCase();if(LINES.includes(k))return k;}
+  return'';
+}
 function populateMonths(){
   if(!salesData)return;
   const ms=[...new Set(salesData.map(getMonth).filter(Boolean))].sort().reverse();
@@ -1319,7 +1331,14 @@ function renderSummary(){
     return{branch:b.branch,tp,pp,tt,orderCount:res.orderCount,customerCount:res.customerCount,racCustomerCount:res.racCustomerCount,lacCacCustomerCount:res.lacCacCustomerCount};
   });
 
-  // Grand totals
+  // ── Other Dept (salesmen matching no roster person; no target) ──
+  // Computed BEFORE the grand totals: the summary is a company-wide view, so
+  // every valid order in the file must land in exactly one row — either a
+  // roster branch or Other Dept — and the 🌐 total must cover both.
+  const otherCur=computeOther(month,excDel,excLS,excNE).agg;
+  const otherPrev=computeOther(prev,excDel,excLS,excNE).agg;
+
+  // Grand totals = all roster branches + Other Dept
   const gtp={RAC:0,RAC_amt:0,LAC_qty:0,LAC:0,CAC_qty:0,CAC:0};
   const gpp={RAC:0,RAC_amt:0,LAC_qty:0,LAC:0,CAC_qty:0,CAC:0};
   const gtt={RAC:0,LAC:0,CAC:0};
@@ -1330,6 +1349,17 @@ function renderSummary(){
     gtOrders+=b.orderCount; gtCustomers+=b.customerCount;
     gtRacCust+=b.racCustomerCount; gtLacCacCust+=b.lacCacCustomerCount;
   });
+  // Snapshot roster-only progress BEFORE folding in Other Dept. Achv% must be
+  // measured on the same population as the target: Other Dept has no target, so
+  // including its sales in the numerator would inflate the percentage.
+  const gtpRoster={...gtp};
+
+  // Fold in Other Dept. Targets (gtt) stay roster-only — Other Dept has no
+  // target by definition, so grand Achv% = (all sales incl. Other) / (roster
+  // targets) and will read slightly high while orders sit in Other Dept.
+  Object.keys(gtp).forEach(k=>{gtp[k]+=otherCur.tp[k]||0; gpp[k]+=otherPrev.tp[k]||0;});
+  gtOrders+=otherCur.orders; gtCustomers+=otherCur.custCount;
+  gtRacCust+=otherCur.racCust; gtLacCacCust+=otherCur.lacCacCust;
 
   // ── Cell helpers ──────────────────────────────────────────────
   function achv(p,t){
@@ -1349,15 +1379,18 @@ function renderSummary(){
   function tgtCell(v,l){if(!v)return'<td class="num" style="color:#bbb">—</td>';return`<td class="num">${fmtNum(v,l)}</td>`;}
   function cntCell(v){if(!v)return'<td class="num" style="color:#ccc">—</td>';return`<td class="num">${v}</td>`;}
 
-  // 6 cols per product line
-  function racCols(tp,pp,tt){
-    return `${tgtCell(tt.RAC,'RAC')}${qtyCell(tp.RAC)}${amtCell(tp.RAC_amt)}${achv(tp.RAC,tt.RAC)}${qtyCell(pp.RAC)}${mom(tp.RAC,pp.RAC)}`;
+  // 6 cols per product line.
+  // `ap` (achievement progress) is optional and defaults to tp. Only the grand
+  // total passes it: Qty/Amt/MoM show the company-wide figure (incl. Other Dept)
+  // while Achv% is measured on roster branches alone, matching the target base.
+  function racCols(tp,pp,tt,ap){ap=ap||tp;
+    return `${tgtCell(tt.RAC,'RAC')}${qtyCell(tp.RAC)}${amtCell(tp.RAC_amt)}${achv(ap.RAC,tt.RAC)}${qtyCell(pp.RAC)}${mom(tp.RAC,pp.RAC)}`;
   }
-  function lacCols(tp,pp,tt){
-    return `${tgtCell(tt.LAC,'LAC')}${qtyCell(tp.LAC_qty)}${amtCell(tp.LAC)}${achv(tp.LAC,tt.LAC)}${amtCell(pp.LAC)}${mom(tp.LAC,pp.LAC)}`;
+  function lacCols(tp,pp,tt,ap){ap=ap||tp;
+    return `${tgtCell(tt.LAC,'LAC')}${qtyCell(tp.LAC_qty)}${amtCell(tp.LAC)}${achv(ap.LAC,tt.LAC)}${amtCell(pp.LAC)}${mom(tp.LAC,pp.LAC)}`;
   }
-  function cacCols(tp,pp,tt){
-    return `${tgtCell(tt.CAC,'CAC')}${qtyCell(tp.CAC_qty)}${amtCell(tp.CAC)}${achv(tp.CAC,tt.CAC)}${amtCell(pp.CAC)}${mom(tp.CAC,pp.CAC)}`;
+  function cacCols(tp,pp,tt,ap){ap=ap||tp;
+    return `${tgtCell(tt.CAC,'CAC')}${qtyCell(tp.CAC_qty)}${amtCell(tp.CAC)}${achv(ap.CAC,tt.CAC)}${amtCell(pp.CAC)}${mom(tp.CAC,pp.CAC)}`;
   }
   function totalCols(tp){
     const tq=tp.RAC+tp.LAC_qty+tp.CAC_qty;
@@ -1392,14 +1425,17 @@ function renderSummary(){
   // Per-branch YTD
   const branchYTD={};
   monthRoster.forEach(b=>{ branchYTD[b.branch]=computeYTD(b.branch); });
+  const otherYT={RAC:0,RAC_amt:0,LAC_qty:0,LAC:0,CAC_qty:0,CAC:0};
+  ytdMonths.forEach(ym=>{const a=computeOther(ym,excDel,excLS,excNE).agg.tp;Object.keys(otherYT).forEach(k=>otherYT[k]+=a[k]||0);});
   const gyt={RAC:0,RAC_amt:0,LAC_qty:0,LAC:0,CAC_qty:0,CAC:0};
   Object.values(branchYTD).forEach(yt=>Object.keys(gyt).forEach(k=>gyt[k]+=yt[k]||0));
+  Object.keys(gyt).forEach(k=>gyt[k]+=otherYT[k]||0);   // YTD total includes Other Dept too
 
   // Rows
   let rows=`<tr class="row-total">
-    <td class="lft" style="font-weight:700">🌐 All Branches</td>
+    <td class="lft" style="font-weight:700">🌐 Grand Total</td>
     ${cntCell(gtOrders)}${cntCell(gtRacCust)}
-    ${racCols(gtp,gpp,gtt)}${cntCell(gtLacCacCust)}${lacCols(gtp,gpp,gtt)}${cacCols(gtp,gpp,gtt)}
+    ${racCols(gtp,gpp,gtt,gtpRoster)}${cntCell(gtLacCacCust)}${lacCols(gtp,gpp,gtt,gtpRoster)}${cacCols(gtp,gpp,gtt,gtpRoster)}
     ${totalCols(gtp)}
     ${ytdCols(gyt)}
   </tr>`;
@@ -1414,11 +1450,7 @@ function renderSummary(){
     </tr>`;
   });
 
-  // ── Other Dept row (salesmen not in any roster; no target) ──
-  const otherCur=computeOther(month,excDel,excLS,excNE).agg;
-  const otherPrev=computeOther(prev,excDel,excLS,excNE).agg;
-  const otherYT={RAC:0,RAC_amt:0,LAC_qty:0,LAC:0,CAC_qty:0,CAC:0};
-  ytdMonths.forEach(ym=>{const a=computeOther(ym,excDel,excLS,excNE).agg.tp;Object.keys(otherYT).forEach(k=>otherYT[k]+=a[k]||0);});
+  // ── Other Dept row (values already folded into the 🌐 grand total above) ──
   const noTgt={RAC:0,LAC:0,CAC:0};
   rows+=`<tr>
     <td class="lft">Other Dept</td>
@@ -1436,7 +1468,7 @@ function renderSummary(){
   el.innerHTML=`
     <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:12px">
       <div style="font-size:13px;color:#888;display:flex;align-items:center;flex-wrap:wrap;gap:6px">
-        <strong style="color:#111">All Branches</strong> · <span class="badge blue">${month}</span>
+        <strong style="color:#111">Grand Total</strong> · <span class="badge blue">${month}</span>
         · ${gtOrders} orders · ${gtRacCust} RAC cust. · ${gtLacCacCust} LAC/CAC cust.
         · <span style="font-size:12px;color:#aaa">vs ${prev}</span>
       </div>
@@ -1450,7 +1482,7 @@ function renderSummary(){
       <div style="padding:12px 16px 10px;border-bottom:1px solid #eee;display:flex;align-items:center;justify-content:space-between;background:#fff">
         <div>
           <div style="font-size:14px;font-weight:600">Branch Summary — Sales Performance Report</div>
-          <div style="font-size:11px;color:#aaa;margin-top:2px"><strong style="color:#111;font-size:13px">Month: ${month}</strong> &nbsp;·&nbsp; ${new Date().toLocaleDateString('zh-CN')} · ${fb.join(' / ')||'All orders included'}</div>
+          <div style="font-size:11px;color:#aaa;margin-top:2px"><strong style="color:#111;font-size:13px">Month: ${month}</strong> &nbsp;·&nbsp; ${new Date().toLocaleDateString('zh-CN')} · ${fb.join(' / ')||'All orders included'} · RAC/LAC/CAC only</div>
         </div>
         <div style="font-size:12px;color:#bbb;font-weight:500">GREE Mexico</div>
       </div>
@@ -1569,16 +1601,22 @@ function exportSummaryCSV(){
   });
   const ps=(p,t)=>t?(p/t*100).toFixed(1)+'%':'';
   const mm=(c,p)=>p?((c-p)/p*100).toFixed(1)+'%':'';
-  const gtq=(gtp.RAC+gtp.LAC_qty+gtp.CAC_qty).toFixed(0),gta=(gtp.RAC_amt+gtp.LAC+gtp.CAC).toFixed(2);
-  const gytq=(gyt.RAC+gyt.LAC_qty+gyt.CAC_qty).toFixed(0),gyta=(gyt.RAC_amt+gyt.LAC+gyt.CAC).toFixed(2);
-  let csv=`Month,Branch,Orders,RAC Customers,RAC Target(qty),RAC Qty,RAC Amt,RAC Achv%,RAC Qty(${prev}),RAC MoM%,LAC/CAC Customers,LAC Target,LAC Qty,LAC Amt,LAC Achv%,LAC Amt(${prev}),LAC MoM%,CAC Target,CAC Qty,CAC Amt,CAC Achv%,CAC Amt(${prev}),CAC MoM%,Total Qty,Total Amt,YTD RAC Qty,YTD RAC Amt,YTD LAC Qty,YTD LAC Amt,YTD CAC Qty,YTD CAC Amt,YTD Total Qty,YTD Total Amt\n`;
-  csv+=`${month},ALL BRANCHES,${gtO},${gtRacCust},${gtt.RAC||0},${gtp.RAC.toFixed(0)},${gtp.RAC_amt.toFixed(2)},${ps(gtp.RAC,gtt.RAC)},${gpp.RAC.toFixed(0)},${mm(gtp.RAC,gpp.RAC)},${gtLacCacCust},${gtt.LAC||0},${gtp.LAC_qty.toFixed(0)},${gtp.LAC.toFixed(2)},${ps(gtp.LAC,gtt.LAC)},${gpp.LAC.toFixed(2)},${mm(gtp.LAC,gpp.LAC)},${gtt.CAC||0},${gtp.CAC_qty.toFixed(0)},${gtp.CAC.toFixed(2)},${ps(gtp.CAC,gtt.CAC)},${gpp.CAC.toFixed(2)},${mm(gtp.CAC,gpp.CAC)},${gtq},${gta},${gyt.RAC.toFixed(0)},${gyt.RAC_amt.toFixed(2)},${gyt.LAC_qty.toFixed(0)},${gyt.LAC.toFixed(2)},${gyt.CAC_qty.toFixed(0)},${gyt.CAC.toFixed(2)},${gytq},${gyta}\n`;
-  csv+=rows.join('\n');
-  // Other Dept row (no target)
+  // ── Other Dept — computed BEFORE the ALL BRANCHES line so the grand total covers it ──
   const oCur=computeOther(month,excDel,excLS,excNE).agg,oPrev=computeOther(prev,excDel,excLS,excNE).agg;
   const oYT={RAC:0,RAC_amt:0,LAC_qty:0,LAC:0,CAC_qty:0,CAC:0};
   ytdMonths.forEach(ym=>{const a=computeOther(ym,excDel,excLS,excNE).agg.tp;Object.keys(oYT).forEach(k=>oYT[k]+=a[k]||0);});
   const ot=oCur.tp,op=oPrev.tp;
+  // Roster-only snapshot → drives Achv% (Other Dept has no target)
+  const gtpR={...gtp};
+  // Fold Other Dept into the grand total (targets stay roster-only — Other Dept has none)
+  Object.keys(gtp).forEach(k=>{gtp[k]+=ot[k]||0;gpp[k]+=op[k]||0;gyt[k]+=oYT[k]||0;});
+  gtO+=oCur.orders;gtC+=oCur.custCount;gtRacCust+=oCur.racCust;gtLacCacCust+=oCur.lacCacCust;
+  // Totals computed AFTER folding, so Total/YTD columns include Other Dept
+  const gtq=(gtp.RAC+gtp.LAC_qty+gtp.CAC_qty).toFixed(0),gta=(gtp.RAC_amt+gtp.LAC+gtp.CAC).toFixed(2);
+  const gytq=(gyt.RAC+gyt.LAC_qty+gyt.CAC_qty).toFixed(0),gyta=(gyt.RAC_amt+gyt.LAC+gyt.CAC).toFixed(2);
+  let csv=`Month,Branch,Orders,RAC Customers,RAC Target(qty),RAC Qty,RAC Amt,RAC Achv%,RAC Qty(${prev}),RAC MoM%,LAC/CAC Customers,LAC Target,LAC Qty,LAC Amt,LAC Achv%,LAC Amt(${prev}),LAC MoM%,CAC Target,CAC Qty,CAC Amt,CAC Achv%,CAC Amt(${prev}),CAC MoM%,Total Qty,Total Amt,YTD RAC Qty,YTD RAC Amt,YTD LAC Qty,YTD LAC Amt,YTD CAC Qty,YTD CAC Amt,YTD Total Qty,YTD Total Amt\n`;
+  csv+=`${month},"GRAND TOTAL",${gtO},${gtRacCust},${gtt.RAC||0},${gtp.RAC.toFixed(0)},${gtp.RAC_amt.toFixed(2)},${ps(gtpR.RAC,gtt.RAC)},${gpp.RAC.toFixed(0)},${mm(gtp.RAC,gpp.RAC)},${gtLacCacCust},${gtt.LAC||0},${gtp.LAC_qty.toFixed(0)},${gtp.LAC.toFixed(2)},${ps(gtpR.LAC,gtt.LAC)},${gpp.LAC.toFixed(2)},${mm(gtp.LAC,gpp.LAC)},${gtt.CAC||0},${gtp.CAC_qty.toFixed(0)},${gtp.CAC.toFixed(2)},${ps(gtpR.CAC,gtt.CAC)},${gpp.CAC.toFixed(2)},${mm(gtp.CAC,gpp.CAC)},${gtq},${gta},${gyt.RAC.toFixed(0)},${gyt.RAC_amt.toFixed(2)},${gyt.LAC_qty.toFixed(0)},${gyt.LAC.toFixed(2)},${gyt.CAC_qty.toFixed(0)},${gyt.CAC.toFixed(2)},${gytq},${gyta}\n`;
+  csv+=rows.join('\n');
   const otq=(ot.RAC+ot.LAC_qty+ot.CAC_qty).toFixed(0),ota=(ot.RAC_amt+ot.LAC+ot.CAC).toFixed(2);
   const oytq=(oYT.RAC+oYT.LAC_qty+oYT.CAC_qty).toFixed(0),oyta=(oYT.RAC_amt+oYT.LAC+oYT.CAC).toFixed(2);
   csv+=`\n${month},"Other Dept",${oCur.orders},${oCur.racCust},,${ot.RAC.toFixed(0)},${ot.RAC_amt.toFixed(2)},,${op.RAC.toFixed(0)},${mm(ot.RAC,op.RAC)},${oCur.lacCacCust},,${ot.LAC_qty.toFixed(0)},${ot.LAC.toFixed(2)},,${op.LAC.toFixed(2)},${mm(ot.LAC,op.LAC)},,${ot.CAC_qty.toFixed(0)},${ot.CAC.toFixed(2)},,${op.CAC.toFixed(2)},${mm(ot.CAC,op.CAC)},${otq},${ota},${oYT.RAC.toFixed(0)},${oYT.RAC_amt.toFixed(2)},${oYT.LAC_qty.toFixed(0)},${oYT.LAC.toFixed(2)},${oYT.CAC_qty.toFixed(0)},${oYT.CAC.toFixed(2)},${oytq},${oyta}`;
