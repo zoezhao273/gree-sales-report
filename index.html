@@ -24,6 +24,8 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,san
 .fg{display:flex;flex-direction:column;gap:5px}
 .fl{font-size:12px;color:#888;font-weight:500;letter-spacing:.3px;text-transform:uppercase}
 select,input[type=month],input[type=number],input[type=text]{font-size:13px;padding:7px 10px;border:1px solid #ddd;border-radius:8px;background:#fff;color:#111;font-family:inherit;outline:none;transition:.12s}
+input[type=number]{-moz-appearance:textfield;appearance:textfield}
+input[type=number]::-webkit-inner-spin-button,input[type=number]::-webkit-outer-spin-button{-webkit-appearance:none;margin:0}
 select:focus,input:focus{border-color:#378ADD}
 .btn{padding:8px 14px;font-size:13px;border:1px solid #ddd;border-radius:8px;cursor:pointer;background:#fff;color:#111;display:inline-flex;align-items:center;gap:6px;font-family:inherit;transition:.12s;white-space:nowrap}
 .btn:hover{background:#f4f4f2;border-color:#bbb}
@@ -136,6 +138,7 @@ tr.drag-over td{border-top:2px solid #378ADD}
     <button class="tab" onclick="switchTab('collection')">Collection Report</button>
     <button class="tab active" onclick="switchTab('report')">Sales Report</button>
     <button class="tab" onclick="switchTab('targets')">Target Setup</button>
+    <button class="tab" onclick="switchTab('china')">China Projects</button>
     <button class="tab" onclick="switchTab('upload')">Upload Data</button>
   </div>
 
@@ -181,14 +184,14 @@ tr.drag-over td{border-top:2px solid #378ADD}
         <div class="card-head">
           <div>
             <div class="card-title">Upload Collection Doc <span class="badge blue" style="margin-left:4px">for Collection Report</span></div>
-            <div class="card-sub">Collection voucher import template — main table on top, detail sub-table below, separated by a blank row. Main table must contain <strong>DocDate</strong>, <strong>ResponsibleDept.</strong>, <strong>AmtinFC</strong>. Only the main table is read.</div>
+            <div class="card-sub">Excel with columns <strong>Doc Date</strong>, <strong>Department</strong>, <strong>Debit Amt in FC</strong>. Used for daily collection reporting.</div>
           </div>
           <button class="btn sm" id="clear-coll-btn" onclick="clearCollFile()" disabled>✕ Clear</button>
         </div>
         <div class="upload-zone" id="drop-zone3" onclick="document.getElementById('fi3').click()">
           <div class="uz-icon">💰</div>
           <div class="uz-main">Click to upload or drag &amp; drop</div>
-          <div class="uz-sub">CustomerCollectionDoc.xlsx</div>
+          <div class="uz-sub">Collection_Doc_Listing_Report.xlsx</div>
           <div class="uz-status" id="dz3-status"></div>
         </div>
         <input type="file" id="fi3" accept=".xlsx,.xls" style="display:none" onchange="handleCollFile(this)">
@@ -233,6 +236,26 @@ tr.drag-over td{border-top:2px solid #378ADD}
     <div id="save-msg"></div>
   </div>
 
+  <div id="tab-china" style="display:none">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1rem;flex-wrap:wrap;gap:8px">
+      <div>
+        <div style="font-size:15px;font-weight:600">China Projects <span class="badge amber" style="margin-left:4px">Manual entry</span></div>
+        <div style="font-size:12px;color:#888;margin-top:3px;max-width:660px;line-height:1.4">Domestic China deals that are not in the ERP Sales Order Report. Sales amount = <strong>SO Amt exclude tax × FE Rate</strong> converted to MXN and counted into the Sales Report; quantity = Qty; attributed to the selected salesperson and their branch in that month's roster; product line follows Line.</div>
+      </div>
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+        <div class="toggle-row" style="border:1px solid #e5e5e5;border-radius:8px;padding:6px 10px;background:#fff">
+          <label class="toggle"><input type="checkbox" id="china-mxn" onchange="toggleChinaMode()"><span class="slider"></span></label>
+          <span id="china-mode-label" style="font-weight:500">Edit mode (original currency)</span>
+        </div>
+        <button class="btn green" id="china-save-btn" onclick="saveChina()">☁️ Save to Cloud</button>
+      </div>
+    </div>
+    <div id="china-warn"></div>
+    <div id="china-body"><div class="empty"><span class="spinner" style="width:18px;height:18px;border-width:3px"></span><br><br>Loading from Google Sheets…</div></div>
+    <button class="btn" id="china-add-btn" style="width:100%;justify-content:center;margin:0.25rem 0 1rem" onclick="addChinaRow()">➕ Add project</button>
+    <div id="china-save-msg"></div>
+  </div>
+
   <div id="tab-collection" style="display:none">
     <div class="filters">
       <div class="fg"><div class="fl">Month</div><select id="coll-month" onchange="renderCollection()"><option>—</option></select></div>
@@ -261,7 +284,6 @@ tr.drag-over td{border-top:2px solid #378ADD}
       </div>
 
     </div>
-    <div id="export-all-msg" style="display:none;font-size:12px;margin-bottom:10px;text-align:right"></div>
     <div id="report-body"><div class="empty">📋 Upload data and select filters to view report</div></div>
   </div>
 </div>
@@ -302,6 +324,10 @@ const DEF_ROSTER = [
 // cloudTargets: { "2026-05": { branchName: { empId: { RAC, LAC, CAC } } }, ... }
 let cloudRosters = {};   // per-month rosters (replaces global roster)
 let cloudTargets = {};
+// China Projects: manually-maintained domestic orders not present in the ERP
+// Sales Order Report. Array of rows (see renderChina for the field schema).
+let cloudChinaProjects = [];
+let chinaReadonly = false;   // false = edit (original currency); true = readonly (all MXN)
 let salesData = null, detailData = null;
 let collectionData = null;   // [{date:'yyyy-mm-dd', dept, amt}]
 let cw = loadCW();
@@ -450,6 +476,7 @@ async function loadFromCloud(){
     }
     if(data.targets && typeof data.targets === 'object') cloudTargets = data.targets;
     if(data.schemas && typeof data.schemas === 'object') cloudSchemas = data.schemas;
+    if(data.chinaProjects && Array.isArray(data.chinaProjects)) cloudChinaProjects = data.chinaProjects;
     setSyncStatus('ok', 'Cloud sync OK');
     // Auto-set target month selector to the latest month that has roster data
     const rosterMonths=Object.keys(cloudRosters).sort().reverse();
@@ -462,6 +489,7 @@ async function loadFromCloud(){
     syncBD();
     if(document.getElementById('tab-targets').style.display !== 'none') renderEditor();
     if(document.getElementById('tab-report').style.display !== 'none') renderReport();
+    if(document.getElementById('tab-china').style.display !== 'none') renderChina();
   }catch(e){
     setSyncStatus('err', 'Cloud unavailable — offline mode');
     console.warn('Cloud load failed:', e);
@@ -522,13 +550,14 @@ async function saveAll(){
 
 // ── Tabs ───────────────────────────────────────────────────────
 function switchTab(t){
-  ['collection','report','targets','upload'].forEach((n,i)=>{
+  ['collection','report','targets','china','upload'].forEach((n,i)=>{
     document.getElementById('tab-'+n).style.display=n===t?'':'none';
     document.querySelectorAll('.tab')[i].classList.toggle('active',n===t);
   });
   if(t==='targets') renderEditor();
   if(t==='report'){syncBD();renderReport();}
   if(t==='collection'){populateCollMonths();renderCollection();}
+  if(t==='china') renderChina();
 }
 switchTab('upload');
 
@@ -644,11 +673,11 @@ function handleCollFile(inp){
   rd.onload=e=>{
     try{
       const wb=XLSX.read(new Uint8Array(e.target.result),{type:'array',cellDates:true});
-      // New import template = two stacked tables (main table on top, detail sub-table
-      // below) separated by ONE blank row. We read the sheet as a raw grid, locate the
-      // MAIN-table header row, then take data rows until the blank separator — the
-      // sub-table below it is intentionally ignored.
-      const aoa=XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]],{header:1,defval:''});
+      // Read as array-of-arrays (keep blank rows) so we can (a) auto-detect the
+      // header row — some ERP exports put an "Import Notices" banner on row 1 and
+      // the real header on row 2 — and (b) stop at the blank line that separates
+      // the main table from any detail sub-table (whose amounts would double-count).
+      const aoa=XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]],{header:1,defval:'',blankrows:true});
       const norm=s=>String(s==null?'':s).trim();
       const pad=n=>String(n).padStart(2,'0');
       const toYMD=v=>{
@@ -656,40 +685,40 @@ function handleCollFile(inp){
         if(typeof v==='number'&&isFinite(v)){const dt=new Date(Math.round((v-25569)*86400000));if(!isNaN(dt))return dt.getUTCFullYear()+'-'+pad(dt.getUTCMonth()+1)+'-'+pad(dt.getUTCDate());}
         const s=norm(v);let m=s.match(/(\d{4})-(\d{2})-(\d{2})/);if(m)return m[1]+'-'+m[2]+'-'+m[3];m=s.match(/^(\d{2})[-/](\d{2})[-/](\d{4})$/);if(m)return m[3]+'-'+m[2]+'-'+m[1];return '';
       };
-      const rowEmpty=row=>!row||row.every(c=>norm(c)==='');
-      // Find a header row that carries all required labels. Preferred = new template
-      // (DocDate / ResponsibleDept. / AmtinFC); fallback = legacy flat template.
-      const findCols=labels=>{
-        for(let r=0;r<aoa.length;r++){
-          const cells=aoa[r].map(norm),idx={};let ok=true;
-          for(const k in labels){const i=cells.indexOf(labels[k]);if(i<0){ok=false;break;}idx[k]=i;}
-          if(ok)return{hdr:r,idx};
-        }
-        return null;
-      };
-      let mode='new';
-      let hit=findCols({date:'DocDate',dept:'ResponsibleDept.',amt:'AmtinFC'});
-      if(!hit){mode='legacy';hit=findCols({date:'Doc Date',dept:'Department',amt:'Debit Amt in FC'});}
-      if(!hit){alert('无法识别收款单模版列。\n\n新模版主表需包含表头列：DocDate、ResponsibleDept.、AmtinFC。');return;}
-      const{hdr,idx}=hit,out=[];
+      // Column aliases (canonicalized: lowercase, strip all non-alphanumerics).
+      // "DocDate" and "Doc Date" → docdate; "* ResponsibleDept." → responsibledept;
+      // "AmtinFC" and "Debit Amt in FC" → amtinfc / debitamtinfc.
+      const canon=s=>String(s==null?'':s).toLowerCase().replace(/[^a-z0-9]/g,'');
+      const DATE_KEYS=['docdate'],
+            DEPT_KEYS=['responsibledept','department','dept'],
+            AMT_KEYS=['amtinfc','debitamtinfc'];
+      let hdr=-1,di=-1,pi=-1,ai=-1;
+      for(let r=0;r<Math.min(aoa.length,20);r++){
+        const row=(aoa[r]||[]).map(canon);
+        const d=row.findIndex(c=>DATE_KEYS.includes(c));
+        if(d>=0){hdr=r;di=d;pi=row.findIndex(c=>DEPT_KEYS.includes(c));ai=row.findIndex(c=>AMT_KEYS.includes(c));break;}
+      }
+      if(hdr<0||ai<0){
+        alert('Could not find the required columns in this file.\n\nExpected a header row with a date column ("DocDate" / "Doc Date") and an amount column ("AmtinFC" / "Debit Amt in FC").');
+        return;
+      }
+      collectionData=[];
       for(let r=hdr+1;r<aoa.length;r++){
         const row=aoa[r];
-        if(rowEmpty(row))break;                       // blank line → main table ends here (drop sub-table)
-        if(/^"?bodys[,"]/.test(norm(row[0])))break;   // safety net: detail sub-table schema marker
-        const date=toYMD(row[idx.date]);
-        if(!date)continue;                            // skip rows without a usable Doc Date
-        out.push({
+        if(!row||row.every(c=>c===''||c==null)) break;   // blank line → end of main table (drop sub-table)
+        const date=toYMD(row[di]);
+        if(!date) continue;
+        collectionData.push({
           date,
-          dept:norm(row[idx.dept])||'(No Dept)',
-          amt:parseFloat(String(row[idx.amt]).replace(/,/g,''))||0
+          dept:(pi>=0?norm(row[pi]):'')||'(No Dept)',
+          amt:parseFloat(String(row[ai]).replace(/,/g,''))||0
         });
       }
-      collectionData=out;
       const dates=collectionData.map(r=>r.date).sort();
       const dmin=dates[0]||'', dmax=dates[dates.length-1]||'';
       populateCollMonths();
       const ds=document.getElementById('dz3-status');
-      ds.innerHTML=`<div class="uz-fname">📄 ${esc(f.name)}</div><div class="uz-fres">${collectionData.length} docs · ${dmin} → ${dmax}${mode==='legacy'?' <span style="color:#999">(legacy template)</span>':''}</div>`;
+      ds.innerHTML=`<div class="uz-fname">📄 ${esc(f.name)}</div><div class="uz-fres">${collectionData.length} docs · ${dmin} → ${dmax}</div>`;
       ds.style.display='block';
       document.getElementById('coll-result').innerHTML=`<div style="text-align:right"><button class="btn sm primary" onclick="switchTab('collection')">View Collection →</button></div>`;
       document.getElementById('clear-coll-btn').disabled=false;
@@ -715,19 +744,7 @@ if(dz3){
 }
 
 function getMonth(r){const d=r['Order Date']||'';const m=String(d).match(/(\d{4})-(\d{2})/)||String(d).match(/(\d{2})-(\d{2})-(\d{4})/);if(!m)return'';return String(d).match(/^\d{2}-\d{2}-\d{4}$/)?m[3]+'-'+m[2]:m[1]+'-'+m[2];}
-// Product line = the RAC / LAC / CAC segment of Category Code ("1-RAC-01" → RAC).
-// Split on "-" rather than a fixed slice(2,5): the old rule silently broke if the
-// numeric prefix was ever not exactly one digit ("10-RAC-01" would slice to "-RA"
-// and be dropped from all statistics). Segment matching also tolerates a missing
-// prefix ("RAC-01") and stray case/whitespace.
-// Anything else — IST (installation), PAT (parts), ASC/SRV (service), SMP
-// (samples) — returns '' and is excluded from every metric.
-function getPL(c){
-  if(!c)return'';
-  const parts=String(c).split('-');
-  for(const p of parts){const k=p.trim().toUpperCase();if(LINES.includes(k))return k;}
-  return'';
-}
+function getPL(c){if(!c)return'';const s=String(c);if(s.length>=5){const pl=s.slice(2,5);if(LINES.includes(pl))return pl;}return'';}
 function populateMonths(){
   if(!salesData)return;
   const ms=[...new Set(salesData.map(getMonth).filter(Boolean))].sort().reverse();
@@ -1037,6 +1054,49 @@ function computeP(month,bn,excDel,excLS,excNE){
       if(nc&&custFirstMonth[nc]===month) prog[key]._newCusts.add(nc);
     });
   }
+  // ── Inject manually-maintained China domestic projects ─────────
+  // Attributed to the selected salesperson by BRANCH + id (empBranch/empId).
+  // Employee ids are only unique within a branch, so a row is added to this
+  // branch (bn) only when empBranch matches bn. Legacy rows without empBranch
+  // fall back to id-match, but ONLY when that id is unique across this month's
+  // roster — otherwise the row is skipped (prompting a re-pick) rather than
+  // being double-counted into every branch that shares the id.
+  // Sales amount = SO Amt exclude tax → MXN (×FE Rate, or ×1 for MXN rows);
+  // quantity = Qty; product line = Line. A blank exclude-tax row is unbilled
+  // and contributes nothing. China projects are inherently "valid orders" and
+  // are unaffected by the three ERP exclude toggles.
+  if(cloudChinaProjects && cloudChinaProjects.length && bData){
+    const idset=new Set(bData.people.map(p=>p.id));
+    cloudChinaProjects.forEach((cp,ci)=>{
+      if(cp.month!==month) return;
+      if(!cp.empId) return;
+      if(cp.empBranch){
+        if(cp.empBranch!==bn) return;                     // belongs to a different branch
+      }else{
+        // legacy row (no branch): attribute only if the id is unambiguous this month
+        let owners=0; (monthRoster||[]).forEach(b=>{if(b.people.some(x=>x.id===cp.empId))owners++;});
+        if(owners!==1) return;                            // ambiguous id → skip (avoids multi-branch double count)
+      }
+      if(!idset.has(cp.empId)) return;                    // salesperson not in THIS branch this month
+      const excl=parseFloat(String(cp.soExcl).replace(/,/g,''))||0;
+      if(excl<=0) return;                                 // unbilled → skip entirely
+      const pr=prog[cp.empId]; if(!pr) return;
+      const rate=(cp.currency==='MXN')?1:(parseFloat(cp.feRate)||1);
+      const mxn=excl*rate;
+      const qty=parseInt(cp.qty,10)||0;
+      if(cp.line==='RAC'){pr.RAC+=qty;pr.RAC_amt+=mxn;}
+      else if(cp.line==='LAC'){pr.LAC_qty+=qty;pr.LAC+=mxn;}
+      else if(cp.line==='CAC'){pr.CAC_qty+=qty;pr.CAC+=mxn;}
+      else return;                                        // no/invalid line → skip
+      pr._ords=(pr._ords||0)+1;                           // each project = 1 order
+      const custKey=(cp.project||'').trim()||('CN#'+(ci+1));
+      pr._custs.add(custKey);                             // project name = 1 customer
+      validOrders.add('CN::'+ci);
+      customerSet.add(custKey);
+      if(cp.line==='RAC') racCustomerSet.add(custKey);
+      else if(cp.line==='LAC'||cp.line==='CAC') lacCacCustomerSet.add(custKey);
+    });
+  }
   return{prog,orderCount:validOrders.size,customerCount:customerSet.size,racCustomerCount:racCustomerSet.size,lacCacCustomerCount:lacCacCustomerSet.size,remapped,bData};
 }
 
@@ -1117,17 +1177,18 @@ function renderOther(){
     });
   }
   const fb=[];if(excDel)fb.push('Deleted excluded');if(excLS)fb.push('Lock Stock/Inner Use excluded');if(excNE)fb.push('Not-Exist excluded');
+  const fbadge=fb.length?`<span class="badge amber" style="margin-left:8px">${fb.join(' · ')}</span>`:'';
   const totalOrders=sumOrds(allProg);
   el.innerHTML=`
     <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:12px">
       <div style="font-size:13px;color:#888;display:flex;align-items:center;flex-wrap:wrap;gap:6px">
-        <strong style="color:#111">Other Dept</strong> · <span class="badge blue">${month}</span> · ${totalOrders} orders
+        <strong style="color:#111">Other Dept</strong> · <span class="badge blue">${month}</span>${fbadge} · ${totalOrders} orders
         · <span style="font-size:12px;color:#aaa">no target — salesman not in any roster</span>
       </div>
       <div style="display:flex;gap:8px">
-        <button class="btn blue" id="export-all-btn" onclick="exportAllPNG()" title="Export every branch + Other Dept + All Branches Summary in one go">Export All PNG</button>
-        <button class="btn blue" id="png-btn" onclick="exportPNG()">Export PNG</button>
-        <button class="btn" onclick="exportOtherCSV()">Export CSV</button>
+        <button class="btn" onclick="exportAllPNG()">🗂 Export All PNG</button>
+        <button class="btn blue" id="png-btn" onclick="exportPNG()">🖼 Export PNG</button>
+        <button class="btn" onclick="exportOtherCSV()">📄 Export CSV</button>
       </div>
     </div>
     <div id="capture" style="background:#fff;border-radius:10px;border:1px solid #e5e5e5;overflow:hidden">
@@ -1213,16 +1274,17 @@ function renderReport(){
     bData.people.forEach(p=>rows+=personReportRow(p));
   }
   const fb=[];if(excDel)fb.push('Deleted excluded');if(excLS)fb.push('Lock Stock excluded');if(excNE)fb.push('Not-Exist excluded');
+  const fbadge=fb.length?`<span class="badge amber" style="margin-left:8px">${fb.join(' · ')}</span>`:'';
   const rnote=remapped>0?`<span class="remap-note" style="margin-left:6px">↕ ${remapped} remapped</span>`:'';
   document.getElementById('report-body').innerHTML=`
     <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:12px">
       <div style="font-size:13px;color:#888;display:flex;align-items:center;flex-wrap:wrap;gap:6px">
-        <strong style="color:#111">${esc(bn)}</strong> · <span class="badge blue">${month}</span>${rnote} · ${orderCount} orders${(schema.some(m=>m.src==='CUST')&&!custInfoLoaded)?' <span class="badge amber" style="margin-left:6px">⤒ Upload Customer Basic Info for L&CAC Cus</span>':''}
+        <strong style="color:#111">${esc(bn)}</strong> · <span class="badge blue">${month}</span>${fbadge}${rnote} · ${orderCount} orders${(schema.some(m=>m.src==='CUST')&&!custInfoLoaded)?' <span class="badge amber" style="margin-left:6px">⤒ Upload Customer Basic Info for L&CAC Cus</span>':''}
       </div>
       <div style="display:flex;gap:8px">
-        <button class="btn blue" id="export-all-btn" onclick="exportAllPNG()" title="Export every branch + Other Dept + All Branches Summary in one go">Export All PNG</button>
-        <button class="btn blue" id="png-btn" onclick="exportPNG()">Export PNG</button>
-        <button class="btn" onclick="exportCSV()">Export CSV</button>
+        <button class="btn" onclick="exportAllPNG()">🗂 Export All PNG</button>
+        <button class="btn blue" id="png-btn" onclick="exportPNG()">🖼 Export PNG</button>
+        <button class="btn" onclick="exportCSV()">📄 Export CSV</button>
       </div>
     </div>
     <div id="capture" style="background:#fff;border-radius:10px;border:1px solid #e5e5e5;overflow:hidden">
@@ -1244,10 +1306,86 @@ function renderReport(){
     </div>`;
 }
 
+// ── Batch export: one PNG per Sales Report view for the selected month ──
+// Iterates every roster branch + Other Dept + All Branches Summary, re-rendering
+// the report into #report-body each time (report-body is destroyed/rebuilt on
+// each renderReport, so the capture element MUST be re-queried after each call),
+// captures it at full width, and downloads. Progress is shown in a floating
+// overlay because the in-report button is destroyed on every re-render.
+let exportingAll=false;
+
+// Capture a report container to a PNG data URL, temporarily expanding it to full
+// table width (same technique as the single-view exporters).
+function capturePNG(el){
+  return new Promise((resolve,reject)=>{
+    const wrapper=el.querySelector('div[style*="overflow-x"]');
+    const table=el.querySelector('table');
+    const prevOverflow=wrapper?wrapper.style.overflowX:'';
+    const prevWidth=el.style.width, prevMaxWidth=el.style.maxWidth;
+    const fullWidth=table?table.scrollWidth:el.scrollWidth;
+    if(wrapper) wrapper.style.overflowX='visible';
+    el.style.width=fullWidth+'px'; el.style.maxWidth='none';
+    const restore=()=>{if(wrapper)wrapper.style.overflowX=prevOverflow;el.style.width=prevWidth;el.style.maxWidth=prevMaxWidth;};
+    html2canvas(el,{scale:2,backgroundColor:'#ffffff',useCORS:true,logging:false,width:fullWidth,windowWidth:fullWidth+100})
+      .then(c=>{restore();resolve(c.toDataURL('image/png'));})
+      .catch(e=>{restore();reject(e);});
+  });
+}
+function pngFilenameFor(bv,month){
+  if(bv==='__SUMMARY__') return `branch_summary_${month}.png`;
+  if(bv==='__OTHER__') return `sales_Other_Dept_${month}.png`;
+  return `sales_${bv.replace(/\s/g,'_')}_${month}.png`;
+}
+async function exportAllPNG(){
+  if(exportingAll) return;
+  if(!salesData||!detailData){alert('Upload data first.');return;}
+  const branchSel=document.getElementById('filter-branch');
+  const month=document.getElementById('filter-month').value;
+  if(!month||month==='—'){alert('Select a month first.');return;}
+  const monthRoster=cloudRosters[month]||cloudRosters[prevMonthStr(month)]||null;
+  // Targets: each roster branch, then Other Dept, then All Branches Summary.
+  const targets=(monthRoster?monthRoster.map(b=>b.branch):[]).concat(['__OTHER__']);
+  if(monthRoster) targets.push('__SUMMARY__');
+
+  exportingAll=true;
+  const origBranch=branchSel.value;
+  // Floating progress overlay (survives report re-renders).
+  const ov=document.createElement('div');
+  ov.style.cssText='position:fixed;top:16px;left:50%;transform:translateX(-50%);z-index:9999;background:#111;color:#fff;padding:10px 18px;border-radius:10px;font-size:13px;box-shadow:0 4px 20px rgba(0,0,0,.25);display:flex;align-items:center;gap:8px';
+  ov.innerHTML='<span class="spinner"></span> Preparing…';
+  document.body.appendChild(ov);
+
+  let done=0,failed=0;
+  try{
+    for(let k=0;k<targets.length;k++){
+      const bv=targets[k];
+      const label=bv==='__SUMMARY__'?'All Branches Summary':bv==='__OTHER__'?'Other Dept':bv;
+      ov.innerHTML=`<span class="spinner"></span> Exporting ${k+1}/${targets.length} — ${esc(label)}`;
+      branchSel.value=bv;
+      renderReport();                                  // rebuilds #report-body for this view
+      await new Promise(r=>setTimeout(r,60));           // let the DOM settle
+      const el=document.getElementById(bv==='__SUMMARY__'?'sum-capture':'capture'); // re-query every time
+      if(!el){failed++;continue;}
+      try{
+        const url=await capturePNG(el);
+        const a=document.createElement('a');a.download=pngFilenameFor(bv,month);a.href=url;a.click();
+        done++;
+        await new Promise(r=>setTimeout(r,350));         // spacing so the browser accepts each download
+      }catch(e){failed++;}
+    }
+  }finally{
+    branchSel.value=origBranch;
+    renderReport();                                     // restore the view the user was on
+    ov.innerHTML=`✅ Exported ${done} image(s)${failed?` · ${failed} failed`:''}`;
+    ov.style.background=failed?'#A32D2D':'#1D9E75';
+    setTimeout(()=>{ov.remove();exportingAll=false;},2200);
+  }
+}
+
 function exportPNG(){
   const el=document.getElementById('capture');if(!el){alert('No report.');return;}
   const btn=document.getElementById('png-btn');const orig=btn.innerHTML;
-  btn.innerHTML='Generating…';btn.disabled=true;
+  btn.innerHTML='⏳ Generating...';btn.disabled=true;
   const wrapper=el.querySelector('div[style*="overflow-x"]');
   const table=el.querySelector('table');
   const prevOverflow=wrapper?wrapper.style.overflowX:'';
@@ -1331,14 +1469,7 @@ function renderSummary(){
     return{branch:b.branch,tp,pp,tt,orderCount:res.orderCount,customerCount:res.customerCount,racCustomerCount:res.racCustomerCount,lacCacCustomerCount:res.lacCacCustomerCount};
   });
 
-  // ── Other Dept (salesmen matching no roster person; no target) ──
-  // Computed BEFORE the grand totals: the summary is a company-wide view, so
-  // every valid order in the file must land in exactly one row — either a
-  // roster branch or Other Dept — and the 🌐 total must cover both.
-  const otherCur=computeOther(month,excDel,excLS,excNE).agg;
-  const otherPrev=computeOther(prev,excDel,excLS,excNE).agg;
-
-  // Grand totals = all roster branches + Other Dept
+  // Grand totals
   const gtp={RAC:0,RAC_amt:0,LAC_qty:0,LAC:0,CAC_qty:0,CAC:0};
   const gpp={RAC:0,RAC_amt:0,LAC_qty:0,LAC:0,CAC_qty:0,CAC:0};
   const gtt={RAC:0,LAC:0,CAC:0};
@@ -1349,17 +1480,6 @@ function renderSummary(){
     gtOrders+=b.orderCount; gtCustomers+=b.customerCount;
     gtRacCust+=b.racCustomerCount; gtLacCacCust+=b.lacCacCustomerCount;
   });
-  // Snapshot roster-only progress BEFORE folding in Other Dept. Achv% must be
-  // measured on the same population as the target: Other Dept has no target, so
-  // including its sales in the numerator would inflate the percentage.
-  const gtpRoster={...gtp};
-
-  // Fold in Other Dept. Targets (gtt) stay roster-only — Other Dept has no
-  // target by definition, so grand Achv% = (all sales incl. Other) / (roster
-  // targets) and will read slightly high while orders sit in Other Dept.
-  Object.keys(gtp).forEach(k=>{gtp[k]+=otherCur.tp[k]||0; gpp[k]+=otherPrev.tp[k]||0;});
-  gtOrders+=otherCur.orders; gtCustomers+=otherCur.custCount;
-  gtRacCust+=otherCur.racCust; gtLacCacCust+=otherCur.lacCacCust;
 
   // ── Cell helpers ──────────────────────────────────────────────
   function achv(p,t){
@@ -1379,18 +1499,15 @@ function renderSummary(){
   function tgtCell(v,l){if(!v)return'<td class="num" style="color:#bbb">—</td>';return`<td class="num">${fmtNum(v,l)}</td>`;}
   function cntCell(v){if(!v)return'<td class="num" style="color:#ccc">—</td>';return`<td class="num">${v}</td>`;}
 
-  // 6 cols per product line.
-  // `ap` (achievement progress) is optional and defaults to tp. Only the grand
-  // total passes it: Qty/Amt/MoM show the company-wide figure (incl. Other Dept)
-  // while Achv% is measured on roster branches alone, matching the target base.
-  function racCols(tp,pp,tt,ap){ap=ap||tp;
-    return `${tgtCell(tt.RAC,'RAC')}${qtyCell(tp.RAC)}${amtCell(tp.RAC_amt)}${achv(ap.RAC,tt.RAC)}${qtyCell(pp.RAC)}${mom(tp.RAC,pp.RAC)}`;
+  // 6 cols per product line
+  function racCols(tp,pp,tt){
+    return `${tgtCell(tt.RAC,'RAC')}${qtyCell(tp.RAC)}${amtCell(tp.RAC_amt)}${achv(tp.RAC,tt.RAC)}${qtyCell(pp.RAC)}${mom(tp.RAC,pp.RAC)}`;
   }
-  function lacCols(tp,pp,tt,ap){ap=ap||tp;
-    return `${tgtCell(tt.LAC,'LAC')}${qtyCell(tp.LAC_qty)}${amtCell(tp.LAC)}${achv(ap.LAC,tt.LAC)}${amtCell(pp.LAC)}${mom(tp.LAC,pp.LAC)}`;
+  function lacCols(tp,pp,tt){
+    return `${tgtCell(tt.LAC,'LAC')}${qtyCell(tp.LAC_qty)}${amtCell(tp.LAC)}${achv(tp.LAC,tt.LAC)}${amtCell(pp.LAC)}${mom(tp.LAC,pp.LAC)}`;
   }
-  function cacCols(tp,pp,tt,ap){ap=ap||tp;
-    return `${tgtCell(tt.CAC,'CAC')}${qtyCell(tp.CAC_qty)}${amtCell(tp.CAC)}${achv(ap.CAC,tt.CAC)}${amtCell(pp.CAC)}${mom(tp.CAC,pp.CAC)}`;
+  function cacCols(tp,pp,tt){
+    return `${tgtCell(tt.CAC,'CAC')}${qtyCell(tp.CAC_qty)}${amtCell(tp.CAC)}${achv(tp.CAC,tt.CAC)}${amtCell(pp.CAC)}${mom(tp.CAC,pp.CAC)}`;
   }
   function totalCols(tp){
     const tq=tp.RAC+tp.LAC_qty+tp.CAC_qty;
@@ -1425,17 +1542,14 @@ function renderSummary(){
   // Per-branch YTD
   const branchYTD={};
   monthRoster.forEach(b=>{ branchYTD[b.branch]=computeYTD(b.branch); });
-  const otherYT={RAC:0,RAC_amt:0,LAC_qty:0,LAC:0,CAC_qty:0,CAC:0};
-  ytdMonths.forEach(ym=>{const a=computeOther(ym,excDel,excLS,excNE).agg.tp;Object.keys(otherYT).forEach(k=>otherYT[k]+=a[k]||0);});
   const gyt={RAC:0,RAC_amt:0,LAC_qty:0,LAC:0,CAC_qty:0,CAC:0};
   Object.values(branchYTD).forEach(yt=>Object.keys(gyt).forEach(k=>gyt[k]+=yt[k]||0));
-  Object.keys(gyt).forEach(k=>gyt[k]+=otherYT[k]||0);   // YTD total includes Other Dept too
 
   // Rows
   let rows=`<tr class="row-total">
-    <td class="lft" style="font-weight:700">🌐 Grand Total</td>
+    <td class="lft" style="font-weight:700">🌐 All Branches</td>
     ${cntCell(gtOrders)}${cntCell(gtRacCust)}
-    ${racCols(gtp,gpp,gtt,gtpRoster)}${cntCell(gtLacCacCust)}${lacCols(gtp,gpp,gtt,gtpRoster)}${cacCols(gtp,gpp,gtt,gtpRoster)}
+    ${racCols(gtp,gpp,gtt)}${cntCell(gtLacCacCust)}${lacCols(gtp,gpp,gtt)}${cacCols(gtp,gpp,gtt)}
     ${totalCols(gtp)}
     ${ytdCols(gyt)}
   </tr>`;
@@ -1450,7 +1564,11 @@ function renderSummary(){
     </tr>`;
   });
 
-  // ── Other Dept row (values already folded into the 🌐 grand total above) ──
+  // ── Other Dept row (salesmen not in any roster; no target) ──
+  const otherCur=computeOther(month,excDel,excLS,excNE).agg;
+  const otherPrev=computeOther(prev,excDel,excLS,excNE).agg;
+  const otherYT={RAC:0,RAC_amt:0,LAC_qty:0,LAC:0,CAC_qty:0,CAC:0};
+  ytdMonths.forEach(ym=>{const a=computeOther(ym,excDel,excLS,excNE).agg.tp;Object.keys(otherYT).forEach(k=>otherYT[k]+=a[k]||0);});
   const noTgt={RAC:0,LAC:0,CAC:0};
   rows+=`<tr>
     <td class="lft">Other Dept</td>
@@ -1461,6 +1579,7 @@ function renderSummary(){
   </tr>`;
 
   const fb=[];if(excDel)fb.push('Deleted excluded');if(excLS)fb.push('Lock Stock excluded');if(excNE)fb.push('Not-Exist excluded');
+  const fbadge=fb.length?`<span class="badge amber" style="margin-left:8px">${fb.join(' · ')}</span>`:'';
   const th=bg=>`style="font-size:11px;background:${bg}"`;
   const MON=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
   const ytdLabel=`YTD (${cy} ${MON[0]} to ${MON[cm-1]})`;
@@ -1468,21 +1587,21 @@ function renderSummary(){
   el.innerHTML=`
     <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:12px">
       <div style="font-size:13px;color:#888;display:flex;align-items:center;flex-wrap:wrap;gap:6px">
-        <strong style="color:#111">Grand Total</strong> · <span class="badge blue">${month}</span>
+        <strong style="color:#111">All Branches</strong> · <span class="badge blue">${month}</span>${fbadge}
         · ${gtOrders} orders · ${gtRacCust} RAC cust. · ${gtLacCacCust} LAC/CAC cust.
         · <span style="font-size:12px;color:#aaa">vs ${prev}</span>
       </div>
       <div style="display:flex;gap:8px">
-        <button class="btn blue" id="export-all-btn" onclick="exportAllPNG()" title="Export every branch + Other Dept + All Branches Summary in one go">Export All PNG</button>
-        <button class="btn blue" id="sum-png-btn" onclick="exportSummaryPNG()">Export PNG</button>
-        <button class="btn" onclick="exportSummaryCSV()">Export CSV</button>
+        <button class="btn" onclick="exportAllPNG()">🗂 Export All PNG</button>
+        <button class="btn blue" id="sum-png-btn" onclick="exportSummaryPNG()">🖼 Export PNG</button>
+        <button class="btn" onclick="exportSummaryCSV()">📄 Export CSV</button>
       </div>
     </div>
     <div id="sum-capture" style="background:#fff;border-radius:10px;border:1px solid #e5e5e5;overflow:hidden">
       <div style="padding:12px 16px 10px;border-bottom:1px solid #eee;display:flex;align-items:center;justify-content:space-between;background:#fff">
         <div>
           <div style="font-size:14px;font-weight:600">Branch Summary — Sales Performance Report</div>
-          <div style="font-size:11px;color:#aaa;margin-top:2px"><strong style="color:#111;font-size:13px">Month: ${month}</strong> &nbsp;·&nbsp; ${new Date().toLocaleDateString('zh-CN')} · ${fb.join(' / ')||'All orders included'} · RAC/LAC/CAC only</div>
+          <div style="font-size:11px;color:#aaa;margin-top:2px"><strong style="color:#111;font-size:13px">Month: ${month}</strong> &nbsp;·&nbsp; ${new Date().toLocaleDateString('zh-CN')} · ${fb.join(' / ')||'All orders included'}</div>
         </div>
         <div style="font-size:12px;color:#bbb;font-weight:500">GREE Mexico</div>
       </div>
@@ -1538,7 +1657,7 @@ function renderSummary(){
 function exportSummaryPNG(){
   const el=document.getElementById('sum-capture');if(!el){alert('No report.');return;}
   const btn=document.getElementById('sum-png-btn');const orig=btn.innerHTML;
-  btn.innerHTML='Generating…';btn.disabled=true;
+  btn.innerHTML='⏳ Generating...';btn.disabled=true;
 
   // Temporarily expand the container to full table width so html2canvas captures everything
   const wrapper=el.querySelector('div[style*="overflow-x"]');
@@ -1601,128 +1720,21 @@ function exportSummaryCSV(){
   });
   const ps=(p,t)=>t?(p/t*100).toFixed(1)+'%':'';
   const mm=(c,p)=>p?((c-p)/p*100).toFixed(1)+'%':'';
-  // ── Other Dept — computed BEFORE the ALL BRANCHES line so the grand total covers it ──
+  const gtq=(gtp.RAC+gtp.LAC_qty+gtp.CAC_qty).toFixed(0),gta=(gtp.RAC_amt+gtp.LAC+gtp.CAC).toFixed(2);
+  const gytq=(gyt.RAC+gyt.LAC_qty+gyt.CAC_qty).toFixed(0),gyta=(gyt.RAC_amt+gyt.LAC+gyt.CAC).toFixed(2);
+  let csv=`Month,Branch,Orders,RAC Customers,RAC Target(qty),RAC Qty,RAC Amt,RAC Achv%,RAC Qty(${prev}),RAC MoM%,LAC/CAC Customers,LAC Target,LAC Qty,LAC Amt,LAC Achv%,LAC Amt(${prev}),LAC MoM%,CAC Target,CAC Qty,CAC Amt,CAC Achv%,CAC Amt(${prev}),CAC MoM%,Total Qty,Total Amt,YTD RAC Qty,YTD RAC Amt,YTD LAC Qty,YTD LAC Amt,YTD CAC Qty,YTD CAC Amt,YTD Total Qty,YTD Total Amt\n`;
+  csv+=`${month},ALL BRANCHES,${gtO},${gtRacCust},${gtt.RAC||0},${gtp.RAC.toFixed(0)},${gtp.RAC_amt.toFixed(2)},${ps(gtp.RAC,gtt.RAC)},${gpp.RAC.toFixed(0)},${mm(gtp.RAC,gpp.RAC)},${gtLacCacCust},${gtt.LAC||0},${gtp.LAC_qty.toFixed(0)},${gtp.LAC.toFixed(2)},${ps(gtp.LAC,gtt.LAC)},${gpp.LAC.toFixed(2)},${mm(gtp.LAC,gpp.LAC)},${gtt.CAC||0},${gtp.CAC_qty.toFixed(0)},${gtp.CAC.toFixed(2)},${ps(gtp.CAC,gtt.CAC)},${gpp.CAC.toFixed(2)},${mm(gtp.CAC,gpp.CAC)},${gtq},${gta},${gyt.RAC.toFixed(0)},${gyt.RAC_amt.toFixed(2)},${gyt.LAC_qty.toFixed(0)},${gyt.LAC.toFixed(2)},${gyt.CAC_qty.toFixed(0)},${gyt.CAC.toFixed(2)},${gytq},${gyta}\n`;
+  csv+=rows.join('\n');
+  // Other Dept row (no target)
   const oCur=computeOther(month,excDel,excLS,excNE).agg,oPrev=computeOther(prev,excDel,excLS,excNE).agg;
   const oYT={RAC:0,RAC_amt:0,LAC_qty:0,LAC:0,CAC_qty:0,CAC:0};
   ytdMonths.forEach(ym=>{const a=computeOther(ym,excDel,excLS,excNE).agg.tp;Object.keys(oYT).forEach(k=>oYT[k]+=a[k]||0);});
   const ot=oCur.tp,op=oPrev.tp;
-  // Roster-only snapshot → drives Achv% (Other Dept has no target)
-  const gtpR={...gtp};
-  // Fold Other Dept into the grand total (targets stay roster-only — Other Dept has none)
-  Object.keys(gtp).forEach(k=>{gtp[k]+=ot[k]||0;gpp[k]+=op[k]||0;gyt[k]+=oYT[k]||0;});
-  gtO+=oCur.orders;gtC+=oCur.custCount;gtRacCust+=oCur.racCust;gtLacCacCust+=oCur.lacCacCust;
-  // Totals computed AFTER folding, so Total/YTD columns include Other Dept
-  const gtq=(gtp.RAC+gtp.LAC_qty+gtp.CAC_qty).toFixed(0),gta=(gtp.RAC_amt+gtp.LAC+gtp.CAC).toFixed(2);
-  const gytq=(gyt.RAC+gyt.LAC_qty+gyt.CAC_qty).toFixed(0),gyta=(gyt.RAC_amt+gyt.LAC+gyt.CAC).toFixed(2);
-  let csv=`Month,Branch,Orders,RAC Customers,RAC Target(qty),RAC Qty,RAC Amt,RAC Achv%,RAC Qty(${prev}),RAC MoM%,LAC/CAC Customers,LAC Target,LAC Qty,LAC Amt,LAC Achv%,LAC Amt(${prev}),LAC MoM%,CAC Target,CAC Qty,CAC Amt,CAC Achv%,CAC Amt(${prev}),CAC MoM%,Total Qty,Total Amt,YTD RAC Qty,YTD RAC Amt,YTD LAC Qty,YTD LAC Amt,YTD CAC Qty,YTD CAC Amt,YTD Total Qty,YTD Total Amt\n`;
-  csv+=`${month},"GRAND TOTAL",${gtO},${gtRacCust},${gtt.RAC||0},${gtp.RAC.toFixed(0)},${gtp.RAC_amt.toFixed(2)},${ps(gtpR.RAC,gtt.RAC)},${gpp.RAC.toFixed(0)},${mm(gtp.RAC,gpp.RAC)},${gtLacCacCust},${gtt.LAC||0},${gtp.LAC_qty.toFixed(0)},${gtp.LAC.toFixed(2)},${ps(gtpR.LAC,gtt.LAC)},${gpp.LAC.toFixed(2)},${mm(gtp.LAC,gpp.LAC)},${gtt.CAC||0},${gtp.CAC_qty.toFixed(0)},${gtp.CAC.toFixed(2)},${ps(gtpR.CAC,gtt.CAC)},${gpp.CAC.toFixed(2)},${mm(gtp.CAC,gpp.CAC)},${gtq},${gta},${gyt.RAC.toFixed(0)},${gyt.RAC_amt.toFixed(2)},${gyt.LAC_qty.toFixed(0)},${gyt.LAC.toFixed(2)},${gyt.CAC_qty.toFixed(0)},${gyt.CAC.toFixed(2)},${gytq},${gyta}\n`;
-  csv+=rows.join('\n');
   const otq=(ot.RAC+ot.LAC_qty+ot.CAC_qty).toFixed(0),ota=(ot.RAC_amt+ot.LAC+ot.CAC).toFixed(2);
   const oytq=(oYT.RAC+oYT.LAC_qty+oYT.CAC_qty).toFixed(0),oyta=(oYT.RAC_amt+oYT.LAC+oYT.CAC).toFixed(2);
   csv+=`\n${month},"Other Dept",${oCur.orders},${oCur.racCust},,${ot.RAC.toFixed(0)},${ot.RAC_amt.toFixed(2)},,${op.RAC.toFixed(0)},${mm(ot.RAC,op.RAC)},${oCur.lacCacCust},,${ot.LAC_qty.toFixed(0)},${ot.LAC.toFixed(2)},,${op.LAC.toFixed(2)},${mm(ot.LAC,op.LAC)},,${ot.CAC_qty.toFixed(0)},${ot.CAC.toFixed(2)},,${op.CAC.toFixed(2)},${mm(ot.CAC,op.CAC)},${otq},${ota},${oYT.RAC.toFixed(0)},${oYT.RAC_amt.toFixed(2)},${oYT.LAC_qty.toFixed(0)},${oYT.LAC.toFixed(2)},${oYT.CAC_qty.toFixed(0)},${oYT.CAC.toFixed(2)},${oytq},${oyta}`;
   const blob=new Blob(['\uFEFF'+csv],{type:'text/csv;charset=utf-8'});
   const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=`branch_summary_${month}.csv`;a.click();
-}
-
-// ── Batch export: every branch + Other Dept + Summary as PNG ───
-// html2canvas can only shoot what is actually rendered in the DOM, so this
-// walks the Branch dropdown one entry at a time: select → renderReport() →
-// capture → download. The screen visibly flips through each view; the original
-// selection is restored when the run finishes.
-const _nextFrame=()=>new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));
-const _sleep=ms=>new Promise(r=>setTimeout(r,ms));
-
-// Same width-expansion trick as exportPNG(): drop the overflow-x clamp and grow
-// the container to the full table width, then restore on both success & failure.
-function captureCanvas(el){
-  const wrapper=el.querySelector('div[style*="overflow-x"]');
-  const table=el.querySelector('table');
-  const prevOverflow=wrapper?wrapper.style.overflowX:'';
-  const prevWidth=el.style.width, prevMaxWidth=el.style.maxWidth;
-  const fullWidth=table?table.scrollWidth:el.scrollWidth;
-  if(wrapper) wrapper.style.overflowX='visible';
-  el.style.width=fullWidth+'px';
-  el.style.maxWidth='none';
-  const restore=()=>{if(wrapper)wrapper.style.overflowX=prevOverflow;el.style.width=prevWidth;el.style.maxWidth=prevMaxWidth;};
-  return html2canvas(el,{scale:2,backgroundColor:'#ffffff',useCORS:true,logging:false,width:fullWidth,windowWidth:fullWidth+100})
-    .then(c=>{restore();return c;})
-    .catch(err=>{restore();throw err;});
-}
-function dlCanvas(c,name){const a=document.createElement('a');a.download=name;a.href=c.toDataURL('image/png');a.click();}
-
-// The Export All button now lives inside #report-body, which renderReport()
-// destroys and rebuilds on every view switch — so the element must be re-queried
-// after each render rather than cached. The status line sits outside #report-body
-// and therefore survives the loop.
-function _setAllBtn(html,disabled){
-  const b=document.getElementById('export-all-btn');
-  if(b){b.innerHTML=html;b.disabled=!!disabled;}
-}
-function _setAllMsg(text,color){
-  const m=document.getElementById('export-all-msg');
-  if(!m)return;
-  if(!text){m.style.display='none';m.textContent='';return;}
-  m.style.display='';m.textContent=text;m.style.color=color||'#888';
-}
-
-async function exportAllPNG(){
-  if(!salesData||!detailData){alert('Please upload the Sales Order Report first.');return;}
-  const month=document.getElementById('filter-month').value;
-  if(!month||month==='—'){alert('Please select a month first.');return;}
-  const sel=document.getElementById('filter-branch'), prevSel=sel.value;
-  const excDel=document.getElementById('excDel').checked,
-        excLS=document.getElementById('excLS').checked,
-        excNE=document.getElementById('excNE').checked;
-
-  _setAllBtn('<span class="spinner"></span> Checking…',true);
-  _setAllMsg('Scanning branches…');
-  await _nextFrame();
-
-  // Build the task list from THIS month's roster, skipping branches with no
-  // valid orders (they'd render as a table of dashes).
-  const monthRoster=cloudRosters[month]||cloudRosters[prevMonthStr(month)]||[];
-  const tasks=[], skipped=[];
-  monthRoster.forEach(b=>{
-    const res=computeP(month,b.branch,excDel,excLS,excNE);
-    if(res.bData&&res.orderCount>0)
-      tasks.push({val:b.branch,label:b.branch,cap:'capture',file:`sales_${b.branch.replace(/\s/g,'_')}_${month}.png`});
-    else skipped.push(b.branch);
-  });
-  const oth=computeOther(month,excDel,excLS,excNE).agg;
-  if(oth.orders>0) tasks.push({val:'__OTHER__',label:'Other Dept',cap:'capture',file:`sales_Other_Dept_${month}.png`});
-  else skipped.push('Other Dept');
-  // Summary is always exported (it carries the grand total) and goes last —
-  // it is the heaviest view: computeP × branches × Jan..current for YTD.
-  tasks.push({val:'__SUMMARY__',label:'All Branches Summary',cap:'sum-capture',file:`branch_summary_${month}.png`});
-
-  const failed=[];
-  for(let i=0;i<tasks.length;i++){
-    const t=tasks[i];
-    sel.value=t.val;
-    try{
-      renderReport();                 // rebuilds #report-body → button is a NEW element
-      _setAllBtn(`<span class="spinner"></span> ${i+1}/${tasks.length} ${esc(t.label)}…`,true);
-      _setAllMsg(`Exporting ${i+1}/${tasks.length} — ${t.label}…`);
-      await _nextFrame();             // let layout settle before html2canvas reads it
-      const el=document.getElementById(t.cap);
-      if(!el) throw new Error('view did not render');
-      dlCanvas(await captureCanvas(el), t.file);
-      await _sleep(350);              // let the browser flush each download
-    }catch(err){failed.push(t.label);console.warn('Export failed:',t.label,err);}
-  }
-
-  // Restore the user's original view (this also re-renders the button in its
-  // default, enabled state — the explicit reset below is just a safety net)
-  sel.value=prevSel;
-  renderReport();
-  _setAllBtn('Export All PNG',false);
-
-  const ok=tasks.length-failed.length;
-  let note=`✅ ${ok}/${tasks.length} exported`;
-  if(failed.length) note+=` · ⚠️ failed: ${failed.join(', ')}`;
-  if(skipped.length) note+=` · skipped (no orders): ${skipped.join(', ')}`;
-  _setAllMsg(note, failed.length?'#A32D2D':'#1D9E75');
-  setTimeout(()=>_setAllMsg(''),12000);
 }
 
 // ── Collection Report ──────────────────────────────────────────
@@ -1777,8 +1789,8 @@ function renderCollection(){
         · <span class="badge green">Latest-Date ${maxDate}</span> ${fmtAmt(dayTot)}
       </div>
       <div style="display:flex;gap:8px">
-        <button class="btn blue" id="coll-cap-png" onclick="exportCollPNG()">Export PNG</button>
-        <button class="btn" onclick="exportCollCSV()">Export CSV</button>
+        <button class="btn blue" id="coll-cap-png" onclick="exportCollPNG()">🖼 Export PNG</button>
+        <button class="btn" onclick="exportCollCSV()">📄 Export CSV</button>
       </div>
     </div>
     <div id="coll-capture" style="background:#fff;border-radius:10px;border:1px solid #e5e5e5;overflow:hidden">
@@ -1797,7 +1809,7 @@ function renderCollection(){
 }
 function exportCollPNG(){
   const el=document.getElementById('coll-capture');if(!el){alert('No report.');return;}
-  const btn=document.getElementById('coll-cap-png');const orig=btn.innerHTML;btn.innerHTML='Generating…';btn.disabled=true;
+  const btn=document.getElementById('coll-cap-png');const orig=btn.innerHTML;btn.innerHTML='⏳ Generating...';btn.disabled=true;
   html2canvas(el,{scale:2,backgroundColor:'#ffffff',useCORS:true,logging:false}).then(c=>{
     const a=document.createElement('a');a.download=`collection_${document.getElementById('coll-month').value}.png`;
     a.href=c.toDataURL('image/png');a.click();btn.innerHTML=orig;btn.disabled=false;
@@ -1813,6 +1825,291 @@ function exportCollCSV(){
   order.forEach(d=>{csv+=`${month},"${d}",${f(mtd[d]||0)},${f(day[d]||0)}\n`;});
   const blob=new Blob(['\uFEFF'+csv],{type:'text/csv;charset=utf-8'});
   const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=`collection_${month}.csv`;a.click();
+}
+
+// ── China Projects module ─────────────────────────────────────
+const CN_CURR=['USD','CNY','MXN'];
+const CN_LINES=['RAC','LAC','CAC'];
+const CN_NOTES=['国内交货','索克出口','墨珠出口'];
+
+// Separator for the composite salesperson key (branch + id). Employee IDs are
+// only unique WITHIN a branch (manager placeholders like "MGR" repeat across
+// branches), so China-project attribution must key on branch + id, not id alone.
+const CN_SEP='\u241F';
+
+// Every (branch, person) across all months — keyed by branch+id so managers
+// that share an id in different branches remain distinct, selectable options.
+function allRosterPeople(){
+  const map={};
+  Object.keys(cloudRosters).sort().forEach(mo=>{
+    (cloudRosters[mo]||[]).forEach(b=>b.people.forEach(p=>{
+      map[b.branch+CN_SEP+p.id]={id:p.id,name:p.name,branch:b.branch};
+    }));
+  });
+  return Object.values(map).sort((a,b)=>a.branch.localeCompare(b.branch)||a.name.localeCompare(b.name));
+}
+// Resolve a salesperson to {name,branch} in a given month's roster (prev-month
+// fallback, same as computeP). When empBranch is known, look only inside that
+// branch so a shared id (e.g. "MGR") can't resolve to the wrong person.
+function resolveEmpInfo(month,empId,empBranch){
+  if(!empId) return null;
+  const r=cloudRosters[month]||cloudRosters[prevMonthStr(month)]||null;
+  if(!r) return null;
+  if(empBranch){
+    const b=r.find(x=>x.branch===empBranch);
+    if(b){const p=b.people.find(x=>x.id===empId);if(p)return{name:p.name,branch:b.branch};}
+    return null;
+  }
+  for(const b of r){const p=b.people.find(x=>x.id===empId);if(p)return{name:p.name,branch:b.branch};}
+  return null;
+}
+// Back-fill empBranch on legacy rows (saved before branch was stored) ONLY when
+// the id maps to exactly one branch across all rosters. Ambiguous ids (shared
+// across branches) are left blank so the user re-picks the salesperson.
+function cnMigrateBranch(p){
+  if(p.empBranch||!p.empId) return;
+  const branches=new Set();
+  Object.keys(cloudRosters).forEach(mo=>(cloudRosters[mo]||[]).forEach(b=>{if(b.people.some(x=>x.id===p.empId))branches.add(b.branch);}));
+  if(branches.size===1) p.empBranch=[...branches][0];
+}
+// Salesperson dropdown onchange — value is "branch\u241Fid".
+function cnSetSalesperson(i,val){
+  if(!cloudChinaProjects[i])return;
+  const s=String(val),k=s.indexOf(CN_SEP);
+  if(k<0){cloudChinaProjects[i].empBranch='';cloudChinaProjects[i].empId='';}
+  else{cloudChinaProjects[i].empBranch=s.slice(0,k);cloudChinaProjects[i].empId=s.slice(k+1);}
+  renderChinaWarn();
+}
+function cnRate(p){return p.currency==='MXN'?1:(parseFloat(p.feRate)||1);}
+function cnNum(v){const n=parseFloat(String(v==null?'':v).replace(/,/g,''));return isNaN(n)?0:n;}
+function cnHasExcl(p){return String(p.soExcl==null?'':p.soExcl).replace(/,/g,'').trim()!=='' && cnNum(p.soExcl)>0;}
+
+function toggleChinaMode(){
+  chinaReadonly=document.getElementById('china-mxn').checked;
+  document.getElementById('china-mode-label').textContent=chinaReadonly?'Read-only (MXN)':'Edit mode (original currency)';
+  renderChina();
+}
+
+function addChinaRow(){
+  const people=allRosterPeople();
+  // Default salesperson: Sebastián (by id or name) if present, else first roster person.
+  const seb=people.find(p=>p.id==='MX250006')||people.find(p=>/sebast/i.test(p.name));
+  const d=seb||people[0]||{id:'',branch:''};
+  const today=new Date();
+  const mo=today.getFullYear()+'-'+String(today.getMonth()+1).padStart(2,'0');
+  cloudChinaProjects.push({month:mo,feRate:2.5668,empId:d.id||'',empBranch:d.branch||'',project:'',currency:'CNY',line:'RAC',qty:0,soIncl:0,collProg:100,soExcl:0,thirdComm:0,note:'国内交货',progress:''});
+  renderChina();
+  setTimeout(()=>{const b=document.getElementById('china-add-btn');if(b)b.scrollIntoView({behavior:'smooth',block:'center'});},40);
+}
+function delChinaRow(i){
+  const p=cloudChinaProjects[i];
+  if(!confirm(`Delete project "${(p&&p.project)||'#'+(i+1)}"?`))return;
+  cloudChinaProjects.splice(i,1);
+  renderChina();
+}
+function cnSet(i,field,val){if(cloudChinaProjects[i])cloudChinaProjects[i][field]=val;}
+function cnSetInt(i,field,inp){if(cloudChinaProjects[i]){const v=parseInt(String(inp.value).replace(/,/g,''),10);cloudChinaProjects[i][field]=isNaN(v)?0:v;}}
+function cnSetRate(i,inp){if(cloudChinaProjects[i]){const v=parseFloat(inp.value);cloudChinaProjects[i].feRate=isNaN(v)?'':v;}}
+function cnSetProg(i,inp){if(cloudChinaProjects[i]){const v=parseFloat(inp.value);cloudChinaProjects[i].collProg=isNaN(v)?0:v;cnRefresh(i);}}
+function cnMoneyInput(i,field,inp){if(cloudChinaProjects[i]){cloudChinaProjects[i][field]=cnNum(inp.value);cnRefresh(i);}}
+function cnMoneyFocus(inp){const v=cnNum(inp.value);inp.value=v?v:'';}
+function cnMoneyBlur(inp){const v=cnNum(inp.value);inp.value=v?fmtAmt(v):'';}
+
+// Live-update a row's derived cells (Collection Amt, Commission Base) + totals.
+function cnRefresh(i){
+  const p=cloudChinaProjects[i];if(!p)return;
+  const incl=cnNum(p.soIncl),excl=cnNum(p.soExcl),third=cnNum(p.thirdComm),prog=cnNum(p.collProg);
+  const collAmt=incl*prog/100;
+  const base=cnHasExcl(p)?(excl-third):null;
+  const ca=document.getElementById('cn-collamt-'+i);if(ca)ca.textContent=incl?fmtAmt(collAmt):'—';
+  const bs=document.getElementById('cn-base-'+i);if(bs)bs.textContent=base==null?'—':fmtAmt(base);
+  cnTotals();
+}
+function cnTotals(){
+  let tIncl=0,tColl=0,tExcl=0,tThird=0,tBase=0;
+  cloudChinaProjects.forEach(p=>{
+    const r=chinaReadonly?cnRate(p):1;
+    const incl=cnNum(p.soIncl),excl=cnNum(p.soExcl),third=cnNum(p.thirdComm),prog=cnNum(p.collProg);
+    tIncl+=incl*r; tColl+=incl*prog/100*r;
+    if(cnHasExcl(p)){tExcl+=excl*r; tThird+=third*r; tBase+=(excl-third)*r;}
+    else{tThird+=third*r;}
+  });
+  const put=(id,v)=>{const el=document.getElementById(id);if(el)el.textContent=v?fmtAmt(v):'—';};
+  put('cn-t-incl',tIncl);put('cn-t-coll',tColl);put('cn-t-excl',tExcl);put('cn-t-third',tThird);put('cn-t-base',tBase);
+}
+
+function renderChina(){
+  const el=document.getElementById('china-body');if(!el)return;
+  const ro=chinaReadonly;
+  // Mode-dependent chrome
+  document.getElementById('china-mxn').checked=ro;
+  document.getElementById('china-mode-label').textContent=ro?'Read-only (MXN)':'Edit mode (original currency)';
+  document.getElementById('china-add-btn').style.display=ro?'none':'';
+  document.getElementById('china-save-btn').style.display=ro?'none':'';
+
+  const people=allRosterPeople();
+  cloudChinaProjects.forEach(cnMigrateBranch);   // back-fill empBranch on unambiguous legacy rows
+
+  // Warning banner: rows whose salesperson can't be resolved in their month's
+  // roster (→ silently excluded from the Sales Report) or missing a product line.
+  document.getElementById('china-warn').innerHTML=cnWarnHTML();
+
+  if(!cloudChinaProjects.length){
+    el.innerHTML='<div class="empty">🇨🇳 No China projects yet. Click "➕ Add project" below to start.</div>';
+    return;
+  }
+
+  // Salesperson <select>: option value = "branch\u241Fid" (composite, so shared
+  // ids across branches stay distinct). Returns the HTML for row i.
+  const spSelectHTML=(p,i)=>{
+    const cur=(p.empBranch||'')+CN_SEP+(p.empId||'');
+    let opts=[{v:'',l:'— Select salesperson —'}].concat(people.map(pp=>({v:pp.branch+CN_SEP+pp.id,l:pp.name+' · '+pp.branch})));
+    if(p.empId && !people.find(pp=>pp.branch===p.empBranch&&pp.id===p.empId))
+      opts.push({v:cur,l:(p.empBranch?('(not in roster) '+esc(p.empId)+' · '+esc(p.empBranch)):('⚠ re-select · '+esc(p.empId)))});
+    return `<select onchange="cnSetSalesperson(${i},this.value)" style="font-size:11px;padding:3px 4px;width:100%;min-width:150px">${opts.map(o=>`<option value="${esc(o.v)}"${o.v===cur?' selected':''}>${esc(o.l)}</option>`).join('')}</select>`;
+  };
+  const selHTML=(opts,cur,onch)=>`<select onchange="${onch}" style="font-size:11px;padding:3px 4px;width:100%;min-width:70px">${opts.map(o=>`<option value="${esc(o.v)}"${o.v===cur?' selected':''}>${esc(o.l)}</option>`).join('')}</select>`;
+
+  const numTxt=(v,dec)=>{const n=cnNum(v);return dec===0?String(Math.round(n)):fmtAmt(n);};
+
+  let rows='';
+  cloudChinaProjects.forEach((p,i)=>{
+    const rate=cnRate(p);
+    const conv=v=>ro?cnNum(v)*rate:cnNum(v);
+    const incl=cnNum(p.soIncl),excl=cnNum(p.soExcl),third=cnNum(p.thirdComm),prog=cnNum(p.collProg);
+    const collAmt=incl*prog/100;
+    const base=cnHasExcl(p)?(excl-third):null;
+    const info=resolveEmpInfo(p.month,p.empId,p.empBranch);
+    const warn=(!p.empId||!info)?`<span title="Salesperson not found in that month's roster — this row is excluded from the Sales Report" style="color:#E24B4A;margin-left:3px">⚠</span>`:'';
+
+    if(ro){
+      // Readonly MXN view
+      const spName=info?info.name:(p.empId?('(not in roster) '+p.empId):'—');
+      rows+=`<tr>
+        <td class="num" style="color:#aaa">${i+1}</td>
+        <td>${esc(p.month||'')}</td>
+        <td class="num">${cnNum(p.feRate).toFixed(4)}</td>
+        <td class="lft">${esc(spName)}${warn}</td>
+        <td class="lft">${esc(p.project||'')}</td>
+        <td>MXN</td>
+        <td>${esc(p.line||'')}</td>
+        <td class="num">${Math.round(cnNum(p.qty))}</td>
+        <td class="num">${incl?fmtAmt(incl*rate):'—'}</td>
+        <td class="num">${prog}%</td>
+        <td class="num">${incl?fmtAmt(collAmt*rate):'—'}</td>
+        <td class="num">${cnHasExcl(p)?fmtAmt(excl*rate):'—'}</td>
+        <td class="num">${third?fmtAmt(third*rate):'—'}</td>
+        <td class="num">${base==null?'—':fmtAmt(base*rate)}</td>
+        <td>${esc(p.note||'')}</td>
+        <td class="lft">${esc(p.progress||'')}</td>
+      </tr>`;
+    }else{
+      // Editable view (original currency)
+      const money=(field,val)=>`<input class="ri num" type="text" value="${val?fmtAmt(val):''}" placeholder="0.00" style="min-width:96px" oninput="cnMoneyInput(${i},'${field}',this)" onfocus="cnMoneyFocus(this)" onblur="cnMoneyBlur(this)">`;
+      rows+=`<tr>
+        <td class="num" style="color:#aaa">${i+1}</td>
+        <td><input class="ri" type="text" value="${esc(p.month||'')}" placeholder="yyyy-mm" style="min-width:92px" onchange="cnSet(${i},'month',this.value.trim());renderChinaWarn()"></td>
+        <td><input class="ri num" type="number" step="0.0001" value="${p.feRate===''?'':cnNum(p.feRate)}" style="min-width:90px" onchange="cnSetRate(${i},this)"></td>
+        <td style="min-width:150px">${spSelectHTML(p,i)}${warn}</td>
+        <td><input class="ri" type="text" value="${esc(p.project||'')}" placeholder="Project name" style="min-width:110px" onchange="cnSet(${i},'project',this.value)"></td>
+        <td style="min-width:70px">${selHTML(CN_CURR.map(c=>({v:c,l:c})),p.currency,`cnSet(${i},'currency',this.value);cnTotals()`)}</td>
+        <td style="min-width:66px">${selHTML(CN_LINES.map(c=>({v:c,l:c})),p.line,`cnSet(${i},'line',this.value);renderChinaWarn()`)}</td>
+        <td><input class="ri num" type="number" step="1" value="${cnNum(p.qty)||''}" placeholder="0" style="min-width:56px" onchange="cnSetInt(${i},'qty',this)"></td>
+        <td>${money('soIncl',incl)}</td>
+        <td><div style="display:flex;align-items:center;gap:2px"><input class="ri num" type="number" step="1" value="${prog}" style="min-width:60px" oninput="cnSetProg(${i},this)"><span style="font-size:10px;color:#999">%</span></div></td>
+        <td class="num" id="cn-collamt-${i}" style="color:#666;font-variant-numeric:tabular-nums">${incl?fmtAmt(collAmt):'—'}</td>
+        <td>${money('soExcl',excl)}</td>
+        <td>${money('thirdComm',third)}</td>
+        <td class="num" id="cn-base-${i}" style="color:#666;font-variant-numeric:tabular-nums">${base==null?'—':fmtAmt(base)}</td>
+        <td style="min-width:100px">${selHTML(CN_NOTES.map(c=>({v:c,l:c})),p.note,`cnSet(${i},'note',this.value)`)}</td>
+        <td><input class="ri" type="text" value="${esc(p.progress||'')}" placeholder="Progress note" style="min-width:110px" onchange="cnSet(${i},'progress',this.value)"></td>
+        <td style="text-align:center"><button class="delbtn" onclick="delChinaRow(${i})">🗑</button></td>
+      </tr>`;
+    }
+  });
+
+  // Totals row
+  let tIncl=0,tColl=0,tExcl=0,tThird=0,tBase=0;
+  cloudChinaProjects.forEach(p=>{const r=ro?cnRate(p):1;const incl=cnNum(p.soIncl),excl=cnNum(p.soExcl),third=cnNum(p.thirdComm),prog=cnNum(p.collProg);tIncl+=incl*r;tColl+=incl*prog/100*r;tThird+=third*r;if(cnHasExcl(p)){tExcl+=excl*r;tBase+=(excl-third)*r;}});
+  const tcell=(id,v)=>`<td class="num" id="${id}">${v?fmtAmt(v):'—'}</td>`;
+  const emptyTd=(n)=>Array(n).fill('<td></td>').join('');
+  const totalRow=`<tr class="row-total">
+    <td></td><td class="lft" colspan="7">Total${ro?' (MXN)':' (raw sum, original currency)'}</td>
+    ${tcell('cn-t-incl',tIncl)}<td></td>${tcell('cn-t-coll',tColl)}${tcell('cn-t-excl',tExcl)}${tcell('cn-t-third',tThird)}${tcell('cn-t-base',tBase)}<td></td><td></td>${ro?'':'<td></td>'}
+  </tr>`;
+
+  const curHdr=ro?'MXN':'Currency';
+  const caption=ro
+    ? `Read-only · the five amount columns are converted to MXN using each row's FE Rate (MXN-currency rows are not converted)`
+    : `Editing · amounts are in the original currency · Collection Amt and Commission Base are auto-calculated and not stored`;
+  el.innerHTML=`
+    <div style="font-size:11px;color:#aaa;margin-bottom:6px">${caption}</div>
+    <div style="overflow-x:auto;border:1px solid #e5e5e5;border-radius:10px">
+      <table class="rtable" style="min-width:1200px">
+        <thead><tr>
+          <th style="width:34px">No</th>
+          <th style="min-width:96px">Month</th>
+          <th style="min-width:90px">FE Rate</th>
+          <th style="min-width:150px;text-align:left">Salesperson</th>
+          <th style="min-width:100px;text-align:left">Project</th>
+          <th style="min-width:60px">${curHdr}</th>
+          <th style="min-width:56px">Line</th>
+          <th style="min-width:50px">Qty</th>
+          <th style="min-width:96px;background:#f8f8f6">SO Amt<br>incl tax</th>
+          <th style="min-width:82px">Coll.<br>Progress</th>
+          <th style="min-width:96px;background:#f8f8f6">Collection<br>Amt</th>
+          <th style="min-width:96px;background:#ecfaf4">SO Amt<br>excl tax</th>
+          <th style="min-width:88px;background:#f8f8f6">3rd<br>Commission</th>
+          <th style="min-width:96px;background:#f8f8f6">Commission<br>Base</th>
+          <th style="min-width:90px">Note</th>
+          <th style="min-width:100px;text-align:left">Progress</th>
+          ${ro?'':'<th style="width:34px"></th>'}
+        </tr></thead>
+        <tbody>${totalRow}${rows}</tbody>
+      </table>
+    </div>`;
+}
+
+// Build the warning-banner HTML (shared by renderChina and renderChinaWarn).
+function cnWarnHTML(){
+  const probs=[];
+  cloudChinaProjects.forEach((p,i)=>{
+    if(!p.empId||!resolveEmpInfo(p.month,p.empId,p.empBranch)) probs.push(`Row ${i+1} (${esc(p.project||'Untitled')} · ${esc(p.month||'?')}): salesperson not found in that month's roster — excluded from the Sales Report`);
+    else if(!CN_LINES.includes(p.line)) probs.push(`Row ${i+1} (${esc(p.project||'Untitled')}): no product line selected — excluded from the Sales Report`);
+  });
+  const unbilled=cloudChinaProjects.filter(p=>!cnHasExcl(p)).length;
+  let html='';
+  if(probs.length) html+=`<div class="card" style="border-color:#f0c9c9;background:#FCEBEB;padding:0.7rem 1rem;margin-bottom:0.75rem"><div style="font-size:12px;color:#A32D2D;font-weight:600;margin-bottom:4px">⚠ ${probs.length} row(s) excluded from the Sales Report</div><div style="font-size:12px;color:#8a3a3a;line-height:1.5">${probs.join('<br>')}</div></div>`;
+  if(unbilled) html+=`<div class="card" style="border-color:#ead9bd;background:#FAEEDA;padding:0.6rem 1rem;margin-bottom:0.75rem"><div style="font-size:12px;color:#854F0B">ℹ️ ${unbilled} row(s) have no "SO Amt exclude tax" (unbilled) — their amount and quantity are excluded from the Sales Report until the exclude-tax figure is entered.</div></div>`;
+  return html;
+}
+
+// Lightweight re-render of only the warning banner (used on empId/line/month edits
+// so focus isn't stolen from text inputs mid-typing).
+function renderChinaWarn(){
+  const wb=document.getElementById('china-warn');if(!wb)return;
+  wb.innerHTML=cnWarnHTML();
+}
+
+async function saveChina(){
+  if(chinaReadonly){alert('Saving is disabled in read-only mode. Turn off the MXN read-only toggle first.');return;}
+  const btn=document.getElementById('china-save-btn');const orig=btn.innerHTML;
+  btn.disabled=true;btn.innerHTML='<span class="spinner"></span> Saving…';
+  setSyncStatus('loading','Saving to Google Sheets…');
+  try{
+    await gsSet('chinaProjects', cloudChinaProjects);
+    setSyncStatus('ok','Saved ✓  '+new Date().toLocaleTimeString());
+    const msg=document.getElementById('china-save-msg');
+    msg.innerHTML=`<div class="save-ok">✅ Saved ${cloudChinaProjects.length} China project(s) to Google Sheets</div>`;
+    setTimeout(()=>msg.innerHTML='',4000);
+    // Refresh Sales Report if it's showing (so the new numbers appear)
+    if(document.getElementById('tab-report').style.display!=='none') renderReport();
+  }catch(e){
+    setSyncStatus('err','Save failed — check connection');
+    alert('Save failed: '+e.message+'\n\nMake sure the Apps Script was re-deployed.');
+  }finally{
+    btn.disabled=false;btn.innerHTML=orig;
+  }
 }
 
 // Init
