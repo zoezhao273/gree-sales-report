@@ -244,8 +244,8 @@ tr.drag-over td{border-top:2px solid #378ADD}
       </div>
       <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
         <div class="toggle-row" style="border:1px solid #e5e5e5;border-radius:8px;padding:6px 10px;background:#fff">
-          <label class="toggle"><input type="checkbox" id="china-mxn" onchange="toggleChinaMode()"><span class="slider"></span></label>
-          <span id="china-mode-label" style="font-weight:500">Edit mode (original currency)</span>
+          <label class="toggle"><input type="checkbox" id="china-mxn" onchange="toggleChinaMode()" checked><span class="slider"></span></label>
+          <span id="china-mode-label" style="font-weight:500">Read-only (MXN)</span>
         </div>
         <button class="btn green" id="china-save-btn" onclick="saveChina()">☁️ Save to Cloud</button>
       </div>
@@ -327,7 +327,7 @@ let cloudTargets = {};
 // China Projects: manually-maintained domestic orders not present in the ERP
 // Sales Order Report. Array of rows (see renderChina for the field schema).
 let cloudChinaProjects = [];
-let chinaReadonly = false;   // false = edit (original currency); true = readonly (all MXN)
+let chinaReadonly = true;   // default open: read-only (all MXN). false = edit (original currency)
 let salesData = null, detailData = null;
 let collectionData = null;   // [{date:'yyyy-mm-dd', dept, amt}]
 let cw = loadCW();
