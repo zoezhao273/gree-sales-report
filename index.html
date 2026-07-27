@@ -247,6 +247,7 @@ tr.drag-over td{border-top:2px solid #378ADD}
           <label class="toggle"><input type="checkbox" id="china-mxn" onchange="toggleChinaMode()" checked><span class="slider"></span></label>
           <span id="china-mode-label" style="font-weight:500">Read-only (MXN)</span>
         </div>
+        <button class="btn blue" id="china-png-btn" onclick="exportChinaPNG()">🖼 Export PNG</button>
         <button class="btn green" id="china-save-btn" onclick="saveChina()">☁️ Save to Cloud</button>
       </div>
     </div>
@@ -2089,6 +2090,81 @@ function cnWarnHTML(){
 function renderChinaWarn(){
   const wb=document.getElementById('china-warn');if(!wb)return;
   wb.innerHTML=cnWarnHTML();
+}
+
+// Build a STATIC (no inputs) full-width China table for image export.
+// mxn=true → amounts converted to MXN with each row's FE Rate (MXN rows ×1),
+// currency column shows "MXN"; mxn=false → original currency & amounts.
+// Renders every row (incl. unbilled) so the exported image has all the data.
+function buildChinaExportTable(mxn){
+  const g='#f8f8f6', green='#ecfaf4';
+  const th=(lbl,bg)=>`<th style="font-size:11px;${bg?`background:${bg};`:''}white-space:nowrap">${lbl}</th>`;
+  let body='',tIncl=0,tColl=0,tExcl=0,tThird=0,tBase=0;
+  cloudChinaProjects.forEach((p,i)=>{
+    const rate=cnRate(p),r=mxn?rate:1;
+    const incl=cnNum(p.soIncl),excl=cnNum(p.soExcl),third=cnNum(p.thirdComm),prog=cnNum(p.collProg);
+    const collAmt=incl*prog/100, hasE=cnHasExcl(p), base=hasE?(excl-third):null;
+    tIncl+=incl*r; tColl+=collAmt*r; tThird+=third*r; if(hasE){tExcl+=excl*r; tBase+=base*r;}
+    const info=resolveEmpInfo(p.month,p.empId,p.empBranch);
+    const sp=info?info.name:(p.empId?('(not in roster) '+p.empId):'—');
+    const m=v=>fmtAmt(v*r);
+    body+=`<tr>
+      <td class="num" style="color:#aaa">${i+1}</td>
+      <td>${esc(p.month||'')}</td>
+      <td class="num">${cnNum(p.feRate).toFixed(4)}</td>
+      <td class="lft">${esc(sp)}</td>
+      <td class="lft">${esc(p.project||'')}</td>
+      <td>${mxn?'MXN':esc(p.currency||'')}</td>
+      <td>${esc(p.line||'')}</td>
+      <td class="num">${Math.round(cnNum(p.qty))}</td>
+      <td class="num">${incl?m(incl):'—'}</td>
+      <td class="num">${prog}%</td>
+      <td class="num">${incl?m(collAmt):'—'}</td>
+      <td class="num">${hasE?m(excl):'—'}</td>
+      <td class="num">${third?m(third):'—'}</td>
+      <td class="num">${base==null?'—':m(base)}</td>
+      <td>${esc(p.note||'')}</td>
+      <td class="lft">${esc(p.progress||'')}</td>
+    </tr>`;
+  });
+  const tc=v=>`<td class="num">${v?fmtAmt(v):'—'}</td>`;
+  const totalRow=`<tr class="row-total">
+    <td></td><td class="lft" colspan="7">Total${mxn?' (MXN)':' (original currency)'}</td>
+    ${tc(tIncl)}<td></td>${tc(tColl)}${tc(tExcl)}${tc(tThird)}${tc(tBase)}<td></td><td></td>
+  </tr>`;
+  return `<table class="rtable" style="min-width:1100px">
+    <thead><tr>
+      ${th('No')}${th('Month')}${th('FE Rate')}<th style="font-size:11px;text-align:left">Salesperson</th>
+      <th style="font-size:11px;text-align:left">Project</th>${th(mxn?'MXN':'Currency')}${th('Line')}${th('Qty')}
+      ${th('SO Amt incl tax',g)}${th('Coll. Progress')}${th('Collection Amt',g)}${th('SO Amt excl tax',green)}
+      ${th('3rd Commission',g)}${th('Commission Base',g)}${th('Note')}<th style="font-size:11px;text-align:left">Progress</th>
+    </tr></thead>
+    <tbody>${totalRow}${body}</tbody>
+  </table>`;
+}
+
+function exportChinaPNG(){
+  if(!cloudChinaProjects.length){alert('No China projects to export.');return;}
+  const mxn=chinaReadonly;
+  const btn=document.getElementById('china-png-btn');const orig=btn?btn.innerHTML:'';
+  if(btn){btn.disabled=true;btn.innerHTML='⏳ Generating...';}
+  // Off-screen host at natural (full) width so no column/row is clipped.
+  const host=document.createElement('div');
+  host.style.cssText='position:fixed;left:-99999px;top:0;background:#fff';
+  host.innerHTML=`<div id="china-export-cap" style="display:inline-block;background:#fff;border:1px solid #e5e5e5;border-radius:10px;overflow:hidden">
+      <div style="padding:12px 16px 10px;border-bottom:1px solid #eee;display:flex;align-items:center;justify-content:space-between;background:#fff">
+        <div><div style="font-size:14px;font-weight:600">China Projects — ${mxn?'MXN (converted)':'original currency'}</div>
+        <div style="font-size:11px;color:#aaa;margin-top:2px">${cloudChinaProjects.length} project(s) · ${new Date().toLocaleDateString('zh-CN')}${mxn?' · amounts converted with each FE Rate':''}</div></div>
+        <div style="font-size:12px;color:#bbb;font-weight:500">GREE Mexico</div>
+      </div>
+      ${buildChinaExportTable(mxn)}
+    </div>`;
+  document.body.appendChild(host);
+  const el=host.firstElementChild;
+  const done=()=>{host.remove();if(btn){btn.disabled=false;btn.innerHTML=orig;}};
+  html2canvas(el,{scale:2,backgroundColor:'#ffffff',useCORS:true,logging:false,width:el.scrollWidth,windowWidth:el.scrollWidth+100})
+    .then(c=>{const a=document.createElement('a');a.download=`china_projects_${mxn?'MXN':'orig'}_${new Date().toISOString().slice(0,10)}.png`;a.href=c.toDataURL('image/png');a.click();done();})
+    .catch(err=>{alert('Failed: '+err.message);done();});
 }
 
 async function saveChina(){
