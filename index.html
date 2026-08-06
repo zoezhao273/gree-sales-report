@@ -147,15 +147,15 @@ tr.drag-over td{border-top:2px solid #378ADD}
       <div class="card">
         <div class="card-head">
           <div>
-            <div class="card-title">Upload Sales Order Report <span class="badge blue" style="margin-left:4px">for Sales Report</span></div>
-            <div class="card-sub">Excel with "Sales Order" and "Detail Sales Order" sheets</div>
+            <div class="card-title">Upload SI (Sales Invoice) <span class="badge blue" style="margin-left:4px">for Sales Report</span></div>
+            <div class="card-sub">Excel with one sheet per month (e.g. "August 2026"). Delivered / signed-off invoices only.</div>
           </div>
           <button class="btn sm" id="clear-sales-btn" onclick="clearSalesFile()" disabled>✕ Clear</button>
         </div>
         <div class="upload-zone" id="drop-zone" onclick="document.getElementById('fi').click()">
           <div class="uz-icon">📂</div>
           <div class="uz-main">Click to upload or drag &amp; drop</div>
-          <div class="uz-sub">Sales_Order_Report.xlsx</div>
+          <div class="uz-sub">SI-Operation-Dept.xlsx</div>
           <div class="uz-status" id="dz-status"></div>
         </div>
         <input type="file" id="fi" accept=".xlsx,.xls" style="display:none" onchange="handleFile(this)">
@@ -268,22 +268,6 @@ tr.drag-over td{border-top:2px solid #378ADD}
     <div class="filters">
       <div class="fg"><div class="fl">Month</div><select id="filter-month" onchange="syncBD();renderReport()"><option>—</option></select></div>
       <div class="fg"><div class="fl">Branch</div><select id="filter-branch" onchange="renderReport()"></select></div>
-      <div class="fg">
-        <div class="fl" style="opacity:0">x</div>
-        <div class="toggle-row"><label class="toggle"><input type="checkbox" id="excDel" onchange="renderReport()" checked><span class="slider"></span></label><span>Exclude Deleted</span></div>
-        <div class="fn">ERP Order Status = Deleted</div>
-      </div>
-      <div class="fg">
-        <div class="fl" style="opacity:0">x</div>
-        <div class="toggle-row"><label class="toggle"><input type="checkbox" id="excLS" onchange="renderReport()" checked><span class="slider"></span></label><span>Exclude Lock Stock / Inner Use</span></div>
-        <div class="fn">Order Type = Lock Stock Order / Inner Use</div>
-      </div>
-      <div class="fg">
-        <div class="fl" style="opacity:0">x</div>
-        <div class="toggle-row"><label class="toggle"><input type="checkbox" id="excNE" onchange="renderReport()" checked><span class="slider"></span></label><span>Exclude Not-Exist</span></div>
-        <div class="fn">ERP Order Status = Not-Exist</div>
-      </div>
-
     </div>
     <div id="report-body"><div class="empty">📋 Upload data and select filters to view report</div></div>
   </div>
@@ -329,7 +313,16 @@ let cloudTargets = {};
 // Sales Order Report. Array of rows (see renderChina for the field schema).
 let cloudChinaProjects = [];
 let chinaReadonly = true;   // default open: read-only (all MXN). false = edit (original currency)
+// SI (Sales Invoice) model — single flat file, one sheet per month.
+// salesData / detailData are kept as truthy "loaded" flags (both point at the
+// normalized per-line array siRows) so all existing `if(!salesData||!detailData)`
+// guards keep working untouched.
 let salesData = null, detailData = null;
+let siRows = null;         // [{so,invMonth,empId,empName,cust,dept,line,qty,amt}], one per SI line
+let soMeta = {};           // so -> {empId,empName,cust,dept}  (SO↔these are 1:1 in SI)
+let soFirstMonth = {};     // so -> earliest invMonth across all sheets  (Plan B: order/customer counted here)
+let soValid = {};          // so -> true if it has ≥1 RAC/LAC/CAC line in any month
+let soLines = {};          // so -> {RAC:true,LAC:true,CAC:true} product lines present across all its months
 let collectionData = null;   // [{date:'yyyy-mm-dd', dept, amt}]
 let cw = loadCW();
 let dragSrc=null,dragBi=null,dragPi=null,resizing=null;
@@ -575,21 +568,60 @@ function syncBD(){
 }
 
 // ── File upload ────────────────────────────────────────────────
+// Month from an SI sheet name like "August 2026" → "2026-08" (falls back to a
+// yyyy-mm found anywhere in the name).
+const MON_NAMES={january:'01',february:'02',march:'03',april:'04',may:'05',june:'06',july:'07',august:'08',september:'09',october:'10',november:'11',december:'12'};
+function monthFromSheet(sn){
+  const s=String(sn||'').trim();
+  const m=s.match(/([A-Za-z]+)\s+(\d{4})/);
+  if(m){const mm=MON_NAMES[m[1].toLowerCase()];if(mm)return m[2]+'-'+mm;}
+  const m2=s.match(/(\d{4})[-/](\d{1,2})/);
+  if(m2)return m2[1]+'-'+String(m2[2]).padStart(2,'0');
+  return '';
+}
+
 function handleFile(inp){
   const f=inp.files[0];if(!f)return;
   const rd=new FileReader();
   rd.onload=e=>{
     try{
       const wb=XLSX.read(new Uint8Array(e.target.result),{type:'array'});
-      const s1=wb.SheetNames.find(n=>n.toLowerCase().includes('sales order')&&!n.toLowerCase().includes('detail'));
-      const s2=wb.SheetNames.find(n=>n.toLowerCase().includes('detail'));
-      if(!s1||!s2){alert('Cannot find required sheets.');return;}
-      salesData=XLSX.utils.sheet_to_json(wb.Sheets[s1]);
-      detailData=XLSX.utils.sheet_to_json(wb.Sheets[s2]);
+      // Every sheet that resolves to a yyyy-mm is treated as a month of SI lines.
+      const monthSheets=wb.SheetNames.map(sn=>({sn,month:monthFromSheet(sn)})).filter(x=>x.month);
+      if(!monthSheets.length){alert('No month sheets found (expected sheets like "August 2026").');return;}
+      const rows=[], meta={}, months={}, lines={};
+      monthSheets.forEach(({sn,month})=>{
+        XLSX.utils.sheet_to_json(wb.Sheets[sn],{defval:''}).forEach(r=>{
+          const empId=String(r['Salesman Code']||'').trim();
+          const empName=String(r['Salesman Name']||'').trim();
+          const cust=String(r['Customer Name']||'').trim();
+          const dept=String(r['Dept Name']||'').trim();
+          // Order key = SO Number (a SO may span several invoices → one order).
+          // Fall back to Invoice Code only when SO Number is blank/"~".
+          let so=String(r['SO Number']||'').trim();
+          if(!so||so==='~') so=String(r['Invoice Code']||'').trim();
+          if(!so) return;                              // no usable key → skip
+          const line=plFromItem(r['Item Code']);       // RAC/LAC/CAC via Item Code prefix, else null
+          const qty=parseFloat(String(r['Quantity']).replace(/,/g,''))||0;
+          // Amount (locked): Sub Amount After Discount Without Tax = net sales
+          // after discount, before down-payment, excluding tax.
+          const amt=parseFloat(String(r['Sub Amount After Discount Without Tax']).replace(/,/g,''))||0;
+          rows.push({so,invMonth:month,empId,empName,cust,dept,line,qty,amt});
+          if(!meta[so]) meta[so]={empId,empName,cust,dept};
+          (months[so]=months[so]||new Set()).add(month);
+          if(line)(lines[so]=lines[so]||{})[line]=true;
+        });
+      });
+      siRows=rows;
+      soMeta=meta; soLines=lines; soValid={}; soFirstMonth={};
+      Object.keys(months).forEach(so=>{soFirstMonth[so]=[...months[so]].sort()[0];});
+      Object.keys(lines).forEach(so=>{soValid[so]=Object.keys(lines[so]).length>0;});
+      salesData=siRows; detailData=siRows;            // truthy "loaded" flags for existing guards
+      const nInv=new Set(rows.map(r=>r.so)).size, nMonths=monthSheets.length;
       populateMonths();
-      document.getElementById('file-status').innerHTML=`<div class="file-info">✅ <span>${f.name}</span><span class="badge green">${salesData.length} orders</span></div>`;
+      document.getElementById('file-status').innerHTML=`<div class="file-info">✅ <span>${f.name}</span><span class="badge green">${nInv} orders</span></div>`;
       const ds=document.getElementById('dz-status');
-      ds.innerHTML=`<div class="uz-fname">📄 ${f.name}</div><div class="uz-fres">Sales Orders ${salesData.length} · Detail Rows ${detailData.length}</div>`;
+      ds.innerHTML=`<div class="uz-fname">📄 ${f.name}</div><div class="uz-fres">${nMonths} month(s) · ${rows.length} invoice lines · ${nInv} orders (SO)</div>`;
       ds.style.display='block';
       document.getElementById('upload-result').innerHTML=`<div style="text-align:right"><button class="btn sm primary" onclick="switchTab('report')">View Report →</button></div>`;
       document.getElementById('clear-sales-btn').disabled=false;
@@ -647,7 +679,7 @@ if(dz2){
 
 // ── Clear uploaded files ───────────────────────────────────────
 function clearSalesFile(){
-  salesData=null;detailData=null;
+  salesData=null;detailData=null;siRows=null;soMeta={};soFirstMonth={};soValid={};soLines={};
   const fi=document.getElementById('fi');if(fi)fi.value='';
   document.getElementById('upload-result').innerHTML='';
   const ds=document.getElementById('dz-status');if(ds){ds.innerHTML='';ds.style.display='none';}
@@ -744,11 +776,25 @@ if(dz3){
   dz3.addEventListener('drop',e=>{e.preventDefault();dz3.classList.remove('drag');const f=e.dataTransfer.files[0];if(f){const i=document.getElementById('fi3');const dt=new DataTransfer();dt.items.add(f);i.files=dt.files;handleCollFile(i);}});
 }
 
-function getMonth(r){const d=r['Order Date']||'';const m=String(d).match(/(\d{4})-(\d{2})/)||String(d).match(/(\d{2})-(\d{2})-(\d{4})/);if(!m)return'';return String(d).match(/^\d{2}-\d{2}-\d{4}$/)?m[3]+'-'+m[2]:m[1]+'-'+m[2];}
-function getPL(c){if(!c)return'';const s=String(c);if(s.length>=5){const pl=s.slice(2,5);if(LINES.includes(pl))return pl;}return'';}
+// SI: a normalized line already carries its own month (the sheet it came from).
+function getMonth(r){return (r&&r.invMonth)||'';}
+// Product line from Item Code PREFIX (Business Unit Code is intentionally ignored):
+//   MXR → RAC,  MXL → LAC,  MXC → CAC,  anything else → null (not counted).
+// Note: MXI is NOT CAC (excluded — not counted in any line).
+// This drops spare parts / freight / service SKUs (long numeric codes, SRVS, ASC…)
+// and rescues real units whose Business Unit Code was blank.
+function plFromItem(item){
+  const s=String(item||'').trim().toUpperCase();
+  if(s.startsWith('MXR'))return 'RAC';
+  if(s.startsWith('MXL'))return 'LAC';
+  if(s.startsWith('MXC'))return 'CAC';
+  return '';
+}
+// Kept for any legacy caller; classifies via the same Item-Code prefix rule.
+function getPL(c){return plFromItem(c);}
 function populateMonths(){
-  if(!salesData)return;
-  const ms=[...new Set(salesData.map(getMonth).filter(Boolean))].sort().reverse();
+  if(!siRows)return;
+  const ms=[...new Set(siRows.map(r=>r.invMonth).filter(Boolean))].sort().reverse();
   document.getElementById('filter-month').innerHTML=ms.map(m=>`<option value="${m}">${m}</option>`).join('');
   syncBD();
 }
@@ -978,83 +1024,58 @@ function prevMonthStr(month){
   return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0');
 }
 
+// SI model: order unit = SO Number. computeP still accepts the old exclude
+// params for call-site compatibility but ignores them (SI is already
+// delivered/valid data — the three ERP toggles were removed).
+// Plan B split: amounts/quantities are counted in each line's OWN invoice
+// month; a SO's order count + customers are counted in the SO's EARLIEST month.
 function computeP(month,bn,excDel,excLS,excNE){
-  // Use the roster for this specific month; fall back to latest available
   const monthRoster=cloudRosters[month]||cloudRosters[prevMonthStr(month)]||null;
   if(!monthRoster) return{prog:{},orderCount:0,customerCount:0,remapped:0,bData:null};
   const bData=monthRoster.find(b=>b.branch===bn);
   if(!bData)return{prog:{},orderCount:0,customerCount:0,remapped:0,bData:null};
   const idx=buildIdx(monthRoster);
-  const orders=salesData.filter(r=>{if(getMonth(r)!==month)return false;if(excDel&&r['ERP Order Status']==='Deleted')return false;if(excLS&&(r['Order Type']==='Lock Stock Order'||r['Order Type']==='Inner Use'))return false;if(excNE&&r['ERP Order Status']==='Not-Exist')return false;return true;});
-  const oc=new Set(),opm={};
-  orders.forEach(r=>{const m=matchP(String(r['Salesman']||'').trim(),idx);if(m&&m.branch===bn){oc.add(r['Order Code']);opm[r['Order Code']]=m.p.id;}});
-  // An order only counts toward Orders & Custs if it has at least one RAC/LAC/CAC
-  // detail line. Parts/service/installation-only orders (PAT/SRV/IST/SMP…) are
-  // ignored for counting (they contribute 0 amount to any tracked line anyway).
-  const validOrders=new Set();
-  detailData.forEach(d=>{const code=d['Order Code'];if(oc.has(code)&&getPL(d['Category Code']))validOrders.add(code);});
-  // prog: RAC qty+amt, LAC qty+amt, CAC qty+amt, plus per-person customer sets
-  const prog={};bData.people.forEach(p=>prog[p.id]={RAC:0,RAC_amt:0,LAC_qty:0,LAC:0,CAC_qty:0,CAC:0,_custs:new Set(),_ords:0});
-  // Count orders per person (valid orders only)
-  Object.keys(opm).forEach(code=>{if(validOrders.has(code)){const id=opm[code];if(prog[id])prog[id]._ords++;}});
-  // Build orderCode → customer map for per-person counting
-  const _oc2cust={};
-  orders.filter(r=>oc.has(r['Order Code'])).forEach(r=>{
-    const c=r['Customer']||r['customer']||r['客户']||'';
-    if(c) _oc2cust[r['Order Code']]=String(c).trim();
-  });
-  detailData.filter(r=>oc.has(r['Order Code'])).forEach(d=>{
-    const key=opm[d['Order Code']];if(!key||!prog[key])return;
-    const pl=getPL(d['Category Code']);if(!pl)return;
-    const qty=parseFloat(d['Quantity'])||0,amt=parseFloat(d['Final Sub Total Without Tax'])||0;
-    if(pl==='RAC'){prog[key].RAC+=qty;prog[key].RAC_amt+=amt;}
-    else if(pl==='LAC'){prog[key].LAC_qty+=qty;prog[key].LAC+=amt;}
-    else if(pl==='CAC'){prog[key].CAC_qty+=qty;prog[key].CAC+=amt;}
-  });
-  // Assign customers to each person based on their orders (valid orders only)
-  Object.keys(_oc2cust).forEach(code=>{
-    if(!validOrders.has(code))return;
-    const key=opm[code];if(key&&prog[key]) prog[key]._custs.add(_oc2cust[code]);
-  });
-  let remapped=0;orders.forEach(r=>{if(validOrders.has(r['Order Code'])&&r['Branch']!==bn)remapped++;});
-  // Unique customers for this branch's orders, split by product line
-  const customerSet=new Set();
-  const racCustomerSet=new Set();
-  const lacCacCustomerSet=new Set();
-  // Build a map: orderCode → customer name, and orderCode → product lines purchased
-  const orderCustomer={};
-  orders.filter(r=>validOrders.has(r['Order Code'])).forEach(r=>{
-    const c=r['Customer']||r['customer']||r['客户']||'';
-    if(c) orderCustomer[r['Order Code']]=String(c).trim();
-  });
-  // Walk detail rows to find which product lines each order has
-  const orderLines={};
-  detailData.filter(d=>oc.has(d['Order Code'])).forEach(d=>{
-    const pl=getPL(d['Category Code']);
-    if(!pl) return;
-    if(!orderLines[d['Order Code']]) orderLines[d['Order Code']]={};
-    orderLines[d['Order Code']][pl]=true;
-  });
-  Object.keys(orderCustomer).forEach(code=>{
-    const c=orderCustomer[code];
-    if(!c) return;
-    customerSet.add(c);
-    const lines=orderLines[code]||{};
-    if(lines['RAC']) racCustomerSet.add(c);
-    if(lines['LAC']||lines['CAC']) lacCacCustomerSet.add(c);
-  });
-  // L&CAC Cus — new valid customers this month: attributed customer whose First
-  // Cooperate Date is in this month AND who placed a LAC or CAC order this month.
-  if(custInfoLoaded){
-    bData.people.forEach(p=>{if(prog[p.id])prog[p.id]._newCusts=new Set();});
-    Object.keys(orderCustomer).forEach(code=>{
-      const key=opm[code];if(!key||!prog[key])return;
-      const lines=orderLines[code]||{};
-      if(!(lines['LAC']||lines['CAC']))return; // only L&CAC orders qualify
-      const nc=normCust(orderCustomer[code]);
-      if(nc&&custFirstMonth[nc]===month) prog[key]._newCusts.add(nc);
-    });
+  // Attribution key = Salesman Code (工号) → roster id (exact); fuzzy name fallback.
+  const idmap={};
+  monthRoster.forEach(b=>b.people.forEach(p=>{if(p.id&&!idmap[p.id])idmap[p.id]={branch:b.branch,isManager:p.isManager,p};}));
+  function ownerOf(empId,empName){
+    if(empId&&idmap[empId])return idmap[empId];
+    return matchP(String(empName||'').trim(),idx);
   }
+
+  const prog={};bData.people.forEach(p=>prog[p.id]={RAC:0,RAC_amt:0,LAC_qty:0,LAC:0,CAC_qty:0,CAC:0,_custs:new Set(),_ords:0,_newCusts:new Set()});
+
+  // ── Amounts & quantities: by the line's OWN invoice month ──
+  siRows.forEach(r=>{
+    if(r.invMonth!==month||!r.line)return;
+    const own=ownerOf(r.empId,r.empName);
+    if(!own||own.branch!==bn)return;
+    const pr=prog[own.p.id];if(!pr)return;
+    if(r.line==='RAC'){pr.RAC+=r.qty;pr.RAC_amt+=r.amt;}
+    else if(r.line==='LAC'){pr.LAC_qty+=r.qty;pr.LAC+=r.amt;}
+    else if(r.line==='CAC'){pr.CAC_qty+=r.qty;pr.CAC+=r.amt;}
+  });
+
+  // ── Orders & customers: by the SO's FIRST (earliest) month ──
+  const validOrders=new Set();
+  const customerSet=new Set(),racCustomerSet=new Set(),lacCacCustomerSet=new Set();
+  let remapped=0;
+  Object.keys(soMeta).forEach(so=>{
+    if(soFirstMonth[so]!==month||!soValid[so])return;   // valid SO, counted in its earliest month only
+    const meta=soMeta[so];
+    const own=ownerOf(meta.empId,meta.empName);
+    if(!own||own.branch!==bn)return;
+    const pr=prog[own.p.id];if(!pr)return;
+    validOrders.add(so);
+    pr._ords++;
+    const c=meta.cust,lns=soLines[so]||{};
+    if(c){pr._custs.add(c);customerSet.add(c);if(lns['RAC'])racCustomerSet.add(c);if(lns['LAC']||lns['CAC'])lacCacCustomerSet.add(c);}
+    if(meta.dept&&meta.dept!==bn)remapped++;            // attribution is by roster, not Dept Name
+    if(custInfoLoaded&&(lns['LAC']||lns['CAC'])){       // L&CAC new customer
+      const nc=normCust(c);
+      if(nc&&custFirstMonth[nc]===month)pr._newCusts.add(nc);
+    }
+  });
   // ── Inject manually-maintained China domestic projects ─────────
   // Attributed to the selected salesperson by BRANCH + id (empBranch/empId).
   // Employee ids are only unique within a branch, so a row is added to this
@@ -1107,45 +1128,54 @@ function computeP(month,bn,excDel,excLS,excNE){
 // No targets exist, so the view drops Target / Achv % and shows Progress only.
 // Same counting rule as the main report: an order counts only if it has ≥1
 // RAC/LAC/CAC detail line.
+// Other Dept: SI lines whose Salesman Code matches NO roster id (and whose name
+// doesn't fuzzy-match either) → grouped by Dept Name, then by salesman.
+// Keeps the (month,exc*) signature for call-site compat; exc* ignored.
+// Plan B split: amounts by each line's own invoice month; orders & customers by
+// the SO's earliest month. Same valid-order rule (≥1 RAC/LAC/CAC line).
 function computeOther(month,excDel,excLS,excNE){
   const monthRoster=cloudRosters[month]||cloudRosters[prevMonthStr(month)]||[];
   const idx=buildIdx(monthRoster);
-  const orders=salesData.filter(r=>{if(getMonth(r)!==month)return false;if(excDel&&r['ERP Order Status']==='Deleted')return false;if(excLS&&(r['Order Type']==='Lock Stock Order'||r['Order Type']==='Inner Use'))return false;if(excNE&&r['ERP Order Status']==='Not-Exist')return false;return true;});
-  // orphan orders = salesman not matched to any roster person
-  const orphan={};
-  orders.forEach(r=>{
-    if(matchP(String(r['Salesman']||'').trim(),idx)) return; // matched → belongs to a real branch
-    orphan[r['Order Code']]={
-      dept:(String(r['Branch']||'').trim())||'(No Dept)',
-      sm:(String(r['Salesman']||'').trim())||'(No Salesman)',
-      cust:String(r['Customer']||r['customer']||r['客户']||'').trim()
-    };
-  });
-  // valid = has at least one RAC/LAC/CAC detail line
-  const valid=new Set();
-  detailData.forEach(d=>{const code=d['Order Code'];if(orphan[code]&&getPL(d['Category Code']))valid.add(code);});
+  const idmap={};
+  monthRoster.forEach(b=>b.people.forEach(p=>{if(p.id)idmap[p.id]=true;}));
+  const isOrphan=(empId,empName)=>{
+    if(empId&&idmap[empId])return false;               // matched a roster工号
+    if(matchP(String(empName||'').trim(),idx))return false; // matched by name
+    return true;
+  };
   const deptMap={};
-  const ens=(dept,sm)=>{if(!deptMap[dept])deptMap[dept]={};if(!deptMap[dept][sm])deptMap[dept][sm]={RAC:0,RAC_amt:0,LAC_qty:0,LAC:0,CAC_qty:0,CAC:0,_ords:0,_custs:new Set(),_newCusts:new Set()};return deptMap[dept][sm];};
-  // orders + customers (valid only)
-  Object.keys(orphan).forEach(code=>{if(!valid.has(code))return;const o=orphan[code];const p=ens(o.dept,o.sm);p._ords++;if(o.cust)p._custs.add(o.cust);});
-  // amounts / quantities
-  detailData.forEach(d=>{const code=d['Order Code'];if(!valid.has(code))return;const pl=getPL(d['Category Code']);if(!pl)return;const o=orphan[code];const p=ens(o.dept,o.sm);const qty=parseFloat(d['Quantity'])||0,amt=parseFloat(d['Final Sub Total Without Tax'])||0;if(pl==='RAC'){p.RAC+=qty;p.RAC_amt+=amt;}else if(pl==='LAC'){p.LAC_qty+=qty;p.LAC+=amt;}else if(pl==='CAC'){p.CAC_qty+=qty;p.CAC+=amt;}});
-  // new L&CAC customers (only if the basic-info file is loaded)
-  if(custInfoLoaded){
-    const orderLines={};
-    detailData.forEach(d=>{const code=d['Order Code'];if(!valid.has(code))return;const pl=getPL(d['Category Code']);if(!pl)return;(orderLines[code]=orderLines[code]||{})[pl]=true;});
-    Object.keys(orphan).forEach(code=>{if(!valid.has(code))return;const o=orphan[code];const lines=orderLines[code]||{};if(!(lines['LAC']||lines['CAC']))return;const nc=normCust(o.cust);if(nc&&custFirstMonth[nc]===month)ens(o.dept,o.sm)._newCusts.add(nc);});
-  }
+  const ens=(dept,id,name)=>{if(!deptMap[dept])deptMap[dept]={};if(!deptMap[dept][id])deptMap[dept][id]={name,RAC:0,RAC_amt:0,LAC_qty:0,LAC:0,CAC_qty:0,CAC:0,_ords:0,_custs:new Set(),_newCusts:new Set()};return deptMap[dept][id];};
+
+  // amounts / quantities — by the line's own invoice month
+  siRows.forEach(r=>{
+    if(r.invMonth!==month||!r.line)return;
+    if(!isOrphan(r.empId,r.empName))return;
+    const dept=r.dept||'(No Dept)', id=r.empId||'(No Salesman)', name=r.empName||'(No Salesman)';
+    const p=ens(dept,id,name);
+    if(r.line==='RAC'){p.RAC+=r.qty;p.RAC_amt+=r.amt;}
+    else if(r.line==='LAC'){p.LAC_qty+=r.qty;p.LAC+=r.amt;}
+    else if(r.line==='CAC'){p.CAC_qty+=r.qty;p.CAC+=r.amt;}
+  });
+
+  // orders & customers — by the SO's earliest month (valid SO only)
+  const custAll=new Set(),racCust=new Set(),lccCust=new Set();let orders_n=0;
+  Object.keys(soMeta).forEach(so=>{
+    if(soFirstMonth[so]!==month||!soValid[so])return;
+    const meta=soMeta[so];
+    if(!isOrphan(meta.empId,meta.empName))return;
+    const dept=meta.dept||'(No Dept)', id=meta.empId||'(No Salesman)', name=meta.empName||'(No Salesman)';
+    const p=ens(dept,id,name);
+    p._ords++;orders_n++;
+    const c=meta.cust,lns=soLines[so]||{};
+    if(c){p._custs.add(c);custAll.add(c);if(lns['RAC'])racCust.add(c);if(lns['LAC']||lns['CAC'])lccCust.add(c);}
+    if(custInfoLoaded&&(lns['LAC']||lns['CAC'])){const nc=normCust(c);if(nc&&custFirstMonth[nc]===month)p._newCusts.add(nc);}
+  });
+
   const depts=Object.keys(deptMap).sort().map(dept=>({
     dept,
-    people:Object.keys(deptMap[dept]).sort().map(sm=>({name:sm,prog:deptMap[dept][sm]}))
+    people:Object.keys(deptMap[dept]).sort((a,b)=>String(deptMap[dept][a].name).localeCompare(String(deptMap[dept][b].name))).map(id=>({name:deptMap[dept][id].name,prog:deptMap[dept][id]}))
   }));
-  // ── Aggregate totals for the Branch Summary "Other Dept" row ──
-  const orderLinesAll={};
-  detailData.forEach(d=>{const code=d['Order Code'];if(!valid.has(code))return;const pl=getPL(d['Category Code']);if(!pl)return;(orderLinesAll[code]=orderLinesAll[code]||{})[pl]=true;});
-  const custAll=new Set(),racCust=new Set(),lccCust=new Set();
-  const tp={RAC:0,RAC_amt:0,LAC_qty:0,LAC:0,CAC_qty:0,CAC:0};let orders_n=0;
-  Object.keys(orphan).forEach(code=>{if(!valid.has(code))return;orders_n++;const o=orphan[code];const c=o.cust;const lines=orderLinesAll[code]||{};if(c){custAll.add(c);if(lines['RAC'])racCust.add(c);if(lines['LAC']||lines['CAC'])lccCust.add(c);}});
+  const tp={RAC:0,RAC_amt:0,LAC_qty:0,LAC:0,CAC_qty:0,CAC:0};
   Object.values(deptMap).forEach(smd=>Object.values(smd).forEach(p=>{tp.RAC+=p.RAC;tp.RAC_amt+=p.RAC_amt;tp.LAC_qty+=p.LAC_qty;tp.LAC+=p.LAC;tp.CAC_qty+=p.CAC_qty;tp.CAC+=p.CAC;}));
   const agg={orders:orders_n,custCount:custAll.size,racCust:racCust.size,lacCacCust:lccCust.size,tp};
   return{depts,agg};
@@ -1156,7 +1186,7 @@ function renderOther(){
   if(!salesData||!detailData){el.innerHTML='<div class="empty">📋 Upload data first</div>';return;}
   const month=document.getElementById('filter-month').value;
   if(!month||month==='—'){el.innerHTML='<div class="empty">Select a month</div>';return;}
-  const excDel=document.getElementById('excDel').checked,excLS=document.getElementById('excLS').checked,excNE=document.getElementById('excNE').checked;
+  const excDel=false,excLS=false,excNE=false;   // SI is already delivered/valid data — ERP exclude toggles removed
   const schema=getSchema(month);
   const{depts}=computeOther(month,excDel,excLS,excNE);
   const custCell=n=>n?`<td class="num">${n}</td>`:`<td class="num" style="color:#ccc">—</td>`;
@@ -1213,7 +1243,7 @@ function renderOther(){
 function exportOtherCSV(){
   const month=document.getElementById('filter-month').value;
   if(!salesData||!month||month==='—')return;
-  const excDel=document.getElementById('excDel').checked,excLS=document.getElementById('excLS').checked,excNE=document.getElementById('excNE').checked;
+  const excDel=false,excLS=false,excNE=false;   // SI is already delivered/valid data — ERP exclude toggles removed
   const schema=getSchema(month);
   const{depts}=computeOther(month,excDel,excLS,excNE);
   const fmtV=(v,m)=>v===null?'':(m.unit==='qty'?Number(v).toFixed(0):Number(v).toFixed(2));
@@ -1239,7 +1269,7 @@ function renderReport(){
   const bn=document.getElementById('filter-branch').value;
   if(bn==='__SUMMARY__'){renderSummary();return;}
   if(bn==='__OTHER__'){renderOther();return;}
-  const excDel=document.getElementById('excDel').checked,excLS=document.getElementById('excLS').checked,excNE=document.getElementById('excNE').checked;
+  const excDel=false,excLS=false,excNE=false;   // SI is already delivered/valid data — ERP exclude toggles removed
   if(!month||month==='—'){document.getElementById('report-body').innerHTML='<div class="empty">Select a month</div>';return;}
   const{prog,orderCount,remapped,bData}=computeP(month,bn,excDel,excLS,excNE);
   if(!bData){document.getElementById('report-body').innerHTML='<div class="empty">Branch not found</div>';return;}
@@ -1416,7 +1446,7 @@ function exportPNG(){
 function exportCSV(){
   const month=document.getElementById('filter-month').value,bn=document.getElementById('filter-branch').value;
   if(!salesData||!bn)return;
-  const excDel=document.getElementById('excDel').checked,excLS=document.getElementById('excLS').checked,excNE=document.getElementById('excNE').checked;
+  const excDel=false,excLS=false,excNE=false;   // SI is already delivered/valid data — ERP exclude toggles removed
   const{prog,orderCount,bData}=computeP(month,bn,excDel,excLS,excNE);if(!bData)return;
   const mt=cloudTargets[month]||{};
   const schema=getSchema(month);
@@ -1440,9 +1470,7 @@ function renderSummary(){
   if(!salesData||!detailData){el.innerHTML='<div class="empty">📋 Upload data first</div>';return;}
   const month=document.getElementById('filter-month').value;
   if(!month||month==='—'){el.innerHTML='<div class="empty">Select a month</div>';return;}
-  const excDel=document.getElementById('excDel').checked;
-  const excLS=document.getElementById('excLS').checked;
-  const excNE=document.getElementById('excNE').checked;
+  const excDel=false,excLS=false,excNE=false;   // SI is already delivered/valid data
   const mt=cloudTargets[month]||{};
   const schema=getSchema(month);
   const monthRoster=cloudRosters[month]||cloudRosters[prevMonthStr(month)]||null;
@@ -1546,6 +1574,18 @@ function renderSummary(){
   const gyt={RAC:0,RAC_amt:0,LAC_qty:0,LAC:0,CAC_qty:0,CAC:0};
   Object.values(branchYTD).forEach(yt=>Object.keys(gyt).forEach(k=>gyt[k]+=yt[k]||0));
 
+  // ── Other Dept aggregates — computed here so they can be folded into the
+  //    grand total. 🌐 All Branches = all roster branches + Other Dept, keeping
+  //    the total row consistent with the sum of the rows beneath it. ──
+  const otherCur=computeOther(month,excDel,excLS,excNE).agg;
+  const otherPrev=computeOther(prev,excDel,excLS,excNE).agg;
+  const otherYT={RAC:0,RAC_amt:0,LAC_qty:0,LAC:0,CAC_qty:0,CAC:0};
+  ytdMonths.forEach(ym=>{const a=computeOther(ym,excDel,excLS,excNE).agg.tp;Object.keys(otherYT).forEach(k=>otherYT[k]+=a[k]||0);});
+  const noTgt={RAC:0,LAC:0,CAC:0};
+  Object.keys(gtp).forEach(k=>{gtp[k]+=otherCur.tp[k]||0; gpp[k]+=otherPrev.tp[k]||0; gyt[k]+=otherYT[k]||0;});
+  gtOrders+=otherCur.orders; gtRacCust+=otherCur.racCust; gtLacCacCust+=otherCur.lacCacCust;
+  // (Other Dept has no targets → gtt / achievement% unchanged)
+
   // Rows
   let rows=`<tr class="row-total">
     <td class="lft" style="font-weight:700">🌐 All Branches</td>
@@ -1565,12 +1605,8 @@ function renderSummary(){
     </tr>`;
   });
 
-  // ── Other Dept row (salesmen not in any roster; no target) ──
-  const otherCur=computeOther(month,excDel,excLS,excNE).agg;
-  const otherPrev=computeOther(prev,excDel,excLS,excNE).agg;
-  const otherYT={RAC:0,RAC_amt:0,LAC_qty:0,LAC:0,CAC_qty:0,CAC:0};
-  ytdMonths.forEach(ym=>{const a=computeOther(ym,excDel,excLS,excNE).agg.tp;Object.keys(otherYT).forEach(k=>otherYT[k]+=a[k]||0);});
-  const noTgt={RAC:0,LAC:0,CAC:0};
+  // ── Other Dept row (salesmen not in any roster; no target). Values already
+  //    computed above and folded into the grand total. ──
   rows+=`<tr>
     <td class="lft">Other Dept</td>
     ${cntCell(otherCur.orders)}${cntCell(otherCur.racCust)}
@@ -1690,7 +1726,7 @@ function exportSummaryPNG(){
 function exportSummaryCSV(){
   const month=document.getElementById('filter-month').value;
   if(!salesData||!month||month==='—')return;
-  const excDel=document.getElementById('excDel').checked,excLS=document.getElementById('excLS').checked,excNE=document.getElementById('excNE').checked;
+  const excDel=false,excLS=false,excNE=false;   // SI is already delivered/valid data — ERP exclude toggles removed
   const mt=cloudTargets[month]||{};
   const schema=getSchema(month);
   const monthRoster=cloudRosters[month]||cloudRosters[prevMonthStr(month)]||null;
@@ -1719,6 +1755,12 @@ function exportSummaryCSV(){
     const ytq=(yt.RAC+yt.LAC_qty+yt.CAC_qty).toFixed(0),yta=(yt.RAC_amt+yt.LAC+yt.CAC).toFixed(2);
     rows.push(`${month},"${b.branch}",${res.orderCount},${res.racCustomerCount||0},${tt.RAC||0},${tp.RAC.toFixed(0)},${tp.RAC_amt.toFixed(2)},${ps(tp.RAC,tt.RAC)},${pp.RAC.toFixed(0)},${mm(tp.RAC,pp.RAC)},${res.lacCacCustomerCount||0},${tt.LAC||0},${tp.LAC_qty.toFixed(0)},${tp.LAC.toFixed(2)},${ps(tp.LAC,tt.LAC)},${pp.LAC.toFixed(2)},${mm(tp.LAC,pp.LAC)},${tt.CAC||0},${tp.CAC_qty.toFixed(0)},${tp.CAC.toFixed(2)},${ps(tp.CAC,tt.CAC)},${pp.CAC.toFixed(2)},${mm(tp.CAC,pp.CAC)},${tq},${ta},${yt.RAC.toFixed(0)},${yt.RAC_amt.toFixed(2)},${yt.LAC_qty.toFixed(0)},${yt.LAC.toFixed(2)},${yt.CAC_qty.toFixed(0)},${yt.CAC.toFixed(2)},${ytq},${yta}`);
   });
+  // Fold Other Dept into the grand total so ALL BRANCHES = roster branches + Other Dept
+  const oCur=computeOther(month,excDel,excLS,excNE).agg,oPrev=computeOther(prev,excDel,excLS,excNE).agg;
+  const oYT={RAC:0,RAC_amt:0,LAC_qty:0,LAC:0,CAC_qty:0,CAC:0};
+  ytdMonths.forEach(ym=>{const a=computeOther(ym,excDel,excLS,excNE).agg.tp;Object.keys(oYT).forEach(k=>oYT[k]+=a[k]||0);});
+  Object.keys(gtp).forEach(k=>{gtp[k]+=oCur.tp[k]||0;gpp[k]+=oPrev.tp[k]||0;gyt[k]+=oYT[k]||0;});
+  gtO+=oCur.orders;gtRacCust+=oCur.racCust;gtLacCacCust+=oCur.lacCacCust;
   const ps=(p,t)=>t?(p/t*100).toFixed(1)+'%':'';
   const mm=(c,p)=>p?((c-p)/p*100).toFixed(1)+'%':'';
   const gtq=(gtp.RAC+gtp.LAC_qty+gtp.CAC_qty).toFixed(0),gta=(gtp.RAC_amt+gtp.LAC+gtp.CAC).toFixed(2);
@@ -1726,10 +1768,7 @@ function exportSummaryCSV(){
   let csv=`Month,Branch,Orders,RAC Customers,RAC Target(qty),RAC Qty,RAC Amt,RAC Achv%,RAC Qty(${prev}),RAC MoM%,LAC/CAC Customers,LAC Target,LAC Qty,LAC Amt,LAC Achv%,LAC Amt(${prev}),LAC MoM%,CAC Target,CAC Qty,CAC Amt,CAC Achv%,CAC Amt(${prev}),CAC MoM%,Total Qty,Total Amt,YTD RAC Qty,YTD RAC Amt,YTD LAC Qty,YTD LAC Amt,YTD CAC Qty,YTD CAC Amt,YTD Total Qty,YTD Total Amt\n`;
   csv+=`${month},ALL BRANCHES,${gtO},${gtRacCust},${gtt.RAC||0},${gtp.RAC.toFixed(0)},${gtp.RAC_amt.toFixed(2)},${ps(gtp.RAC,gtt.RAC)},${gpp.RAC.toFixed(0)},${mm(gtp.RAC,gpp.RAC)},${gtLacCacCust},${gtt.LAC||0},${gtp.LAC_qty.toFixed(0)},${gtp.LAC.toFixed(2)},${ps(gtp.LAC,gtt.LAC)},${gpp.LAC.toFixed(2)},${mm(gtp.LAC,gpp.LAC)},${gtt.CAC||0},${gtp.CAC_qty.toFixed(0)},${gtp.CAC.toFixed(2)},${ps(gtp.CAC,gtt.CAC)},${gpp.CAC.toFixed(2)},${mm(gtp.CAC,gpp.CAC)},${gtq},${gta},${gyt.RAC.toFixed(0)},${gyt.RAC_amt.toFixed(2)},${gyt.LAC_qty.toFixed(0)},${gyt.LAC.toFixed(2)},${gyt.CAC_qty.toFixed(0)},${gyt.CAC.toFixed(2)},${gytq},${gyta}\n`;
   csv+=rows.join('\n');
-  // Other Dept row (no target)
-  const oCur=computeOther(month,excDel,excLS,excNE).agg,oPrev=computeOther(prev,excDel,excLS,excNE).agg;
-  const oYT={RAC:0,RAC_amt:0,LAC_qty:0,LAC:0,CAC_qty:0,CAC:0};
-  ytdMonths.forEach(ym=>{const a=computeOther(ym,excDel,excLS,excNE).agg.tp;Object.keys(oYT).forEach(k=>oYT[k]+=a[k]||0);});
+  // Other Dept row (no target) — oCur/oPrev/oYT already computed above for the fold
   const ot=oCur.tp,op=oPrev.tp;
   const otq=(ot.RAC+ot.LAC_qty+ot.CAC_qty).toFixed(0),ota=(ot.RAC_amt+ot.LAC+ot.CAC).toFixed(2);
   const oytq=(oYT.RAC+oYT.LAC_qty+oYT.CAC_qty).toFixed(0),oyta=(oYT.RAC_amt+oYT.LAC+oYT.CAC).toFixed(2);
