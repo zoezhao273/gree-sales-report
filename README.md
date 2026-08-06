@@ -1,208 +1,243 @@
 # 📊 GREE Mexico Sales Performance Report
 
-销售与收款业绩报表工具。单文件 HTML，无后端依赖，部署在 GitHub Pages，名册/目标数据存于 Google Sheets 云端。支持四个模块：**Collection Report（收款报表）**、**Sales Report（销售报表）**、**Target Setup（名册与目标）**、**Upload Data（数据上传）**。
+A sales and collections performance reporting tool. Single-file HTML, no backend required, deployed on GitHub Pages. Roster, targets, and China Projects data are stored in Google Sheets. Five modules: **Collection Report**, **Sales Report**, **China Projects**, **Target Setup**, and **Upload Data**.
 
-> 界面顶部标题：`📊 Sales Performance Report` · `GREE Mexico`。页面加载后默认停在 **Upload Data** 页。金额统一以 **MXN** 显示（千分位、两位小数）。
-
----
-
-## 🔗 重要链接
-
-| 名称 | 地址 |
-|------|------|
-| **GitHub 仓库** | https://github.com/zoezhao273/greemexico-salesreport2 |
-
-> 若把新版 HTML 上传覆盖到仓库，链接不变。
+> Page title: `📊 Sales Performance Report` · `GREE Mexico`. The page opens on the **Upload Data** tab by default. All amounts are displayed in **MXN** (thousands separator, two decimal places).
 
 ---
 
-## 📁 文件说明
+## 🔗 Key Links
 
-| 文件 | 说明 |
-|------|------|
-| `gree_sales_report2.html`（部署文件名，本地开发文件为 `index.html`） | 完整网页，包含全部四个模块，单文件无依赖 |
-| `README.md` | 本说明文档 |
+| Name | URL |
+|------|-----|
+| **Web app** | https://zoezhao273.github.io/greemexico-salesreport2/gree_sales_report2.html |
+| **GitHub repository** | https://github.com/zoezhao273/greemexico-salesreport2 |
+| **Apps Script URL** | https://script.google.com/macros/s/AKfycbyVug4IbhJ8IhVQySo2dZCHxlXlgCLhOAHeJYyZW6BA5HzKQhRam1uJ_L6t8AlDBxZU/exec |
 
-依赖库均通过 CDN 加载：SheetJS（Excel 解析）、html2canvas（PNG 导出）。
-
----
-
-## 🧭 模块总览
-
-页面顶部四个 Tab，顺序如下：
-
-| Tab | 作用 |
-|-----|------|
-| **Collection Report** | 按月展示各部门的月度累计收款与最新一天收款 |
-| **Sales Report** | 按月/分公司展示业务员目标达成，含 Other Dept 与 All Branches Summary |
-| **Target Setup** | 维护每月名册、目标、指标口径（schema） |
-| **Upload Data** | 上传三类数据源（销售、客户基础信息、收款） |
+> Uploading a new HTML file to the repository does not change any of these links.
 
 ---
 
-## 1️⃣ Upload Data（数据上传）
+## 📁 Files
 
-三张上传卡并排（窄屏自动堆叠）。每张卡都可点击或拖拽上传，右上角有 **✕ Clear** 清除按钮（未上传时禁用），上传成功后虚线框内底部显示两行：文件名 + 读取结果。**所有上传数据只保留在当前浏览器内存中，不上传服务器。**
+| File | Description |
+|------|-------------|
+| `gree_sales_report2.html` (deployed name; local development file is `index.html`) | Complete single-file web app containing all modules |
+| `README.md` | This documentation |
 
-| 卡片 | 标签 | 文件要求 | 关注字段 |
-|------|------|----------|----------|
-| **Upload Sales Order Report** | for Sales Report | `.xlsx`，含 `Sales Order` 和 `Detail Sales Order` 两个 Sheet | 见下方数据处理规则 |
-| **Upload Customer Basic Info** | for L&CAC Cus | `.xlsx`，含列 `Customer Name`、`First Cooperate Date` | 用于计算 L&CAC 新客户开发数 |
-| **Upload Collection Doc** | for Collection Report | `.xlsx` | `Doc Date`、`Department`、`Debit Amt in FC` |
-
-- 销售文件上传后，虚线框显示 `Sales Orders {n} · Detail Rows {m}`。
-- 客户文件上传后显示 `Customers {n}`（若有客户缺 First Cooperate Date 会淡色标注）。
-- 收款文件上传后显示 `{n} docs · {最早日期} → {最晚日期}`。收款 Doc Date 兼容 `yyyy-mm-dd` 文本、真正的日期单元格与 Excel 序列号。
+External libraries are loaded via CDN: SheetJS (Excel parsing) and html2canvas (PNG export).
 
 ---
 
-## 2️⃣ Sales Report（销售报表）
+## 🧭 Module Overview
 
-按 **月份** 和 **分公司** 查看每位业务员的目标完成情况。
-
-### 分公司下拉框（Branch）
-从上到下依次为：
-1. 各名册分公司（如 Mexico City Branch、Monterrey Branch、Project Dept）
-2. **Other Dept**（业务员不在任何名册中的订单，详见数据处理规则）
-3. **All Branches Summary**（横向对比全部分公司的汇总视图）
-
-### 过滤开关（三个，默认全部开启 ✅）
-| 开关 | 默认 | 判定条件 |
-|------|------|----------|
-| Exclude Deleted | ✅ | `ERP Order Status = Deleted` |
-| Exclude Lock Stock / Inner Use | ✅ | `Order Type = Lock Stock Order` **或** `Inner Use` |
-| Exclude Not-Exist | ✅ | `ERP Order Status = Not-Exist`（对应 Draft 草稿单） |
-
-> 三个开关共享于 Sales Report 的所有分公司视图（含 Other Dept 与 All Branches Summary）。
-
-### 单个分公司视图
-- 第一行：分公司汇总（`∑ {branch} Total`）
-- 之后：分总（👑）/分组小计 + 各业务员
-- 每个指标（由 schema 定义）显示 **Target / Progress / Achv%**
-- 达成率颜色：🟢 ≥100%　🟡 50–99%　🔴 <50%
-
-### Other Dept 视图
-业务员经名册三级匹配后匹配不到任何名册人员的订单，统一归入此处。
-- 结构为扁平表：`∑ Other Dept Total` 汇总行 + 每个业务员一行，业务员名字前带一列 **Dept**（原始 Branch 字段），同部门相邻，无部门小计。
-- 因无目标，**删除 Target 和 Achv% 列**，仅显示各指标 Progress。
-
-### All Branches Summary 视图
-横向对比所有分公司，每行列组包含：
-| 列组 | 内容 |
-|------|------|
-| Customers / Orders | 有效订单的唯一客户数、订单数 |
-| RAC | Target(qty) · Qty · Amt · Achv% · Qty(上月) · MoM% |
-| LAC | Target(amt) · Qty · Amt · Achv% · Amt(上月) · MoM% |
-| CAC | Target(amt) · Qty · Amt · Achv% · Amt(上月) · MoM% |
-| Total | 当月三线合计 Qty + 合计 Amt |
-| YTD | 年初至今各线 Qty/Amt + 合计（仅统计有名册的月份） |
-
-- 首行 `🌐 All Branches` 为总计，**仅统计名册分公司**。
-- 末行 **Other Dept** 作为独立维度单列，样式与分公司行一致；因无目标，Target/Achv% 显示 `—`，其余 Qty/Amt/MoM/YTD 正常计算。
-- MoM% 颜色：▲绿色（环比增长）▼红色（环比下降）。
-
-**导出：** Sales Report 各视图均支持 PNG 与 CSV 导出（All Branches Summary 的 PNG 为完整宽度）。
+| Tab | Purpose |
+|-----|---------|
+| **Collection Report** | Monthly and latest-day collections by department |
+| **Sales Report** | Salesperson target achievement by month and branch, including Other Dept and All Branches Summary |
+| **China Projects** | Manual entry of domestic China deals not in the ERP/SI data; automatically injected into Sales Report calculations |
+| **Target Setup** | Manage monthly rosters, targets, and metric schemas |
+| **Upload Data** | Upload three data sources: SI file, Customer Basic Info, Collection Doc |
 
 ---
 
-## 3️⃣ Collection Report（收款报表）
+## 1️⃣ Upload Data
 
-按月展示各部门收款情况，用于每日跟踪当月累计到账与最新一天到账。
+Three upload cards side by side (stacked on narrow screens). Each card supports click or drag-and-drop. A **✕ Clear** button appears top-right when a file is loaded. On successful upload, the drop zone shows the filename and a summary. **All uploaded data is processed in browser memory only — nothing is sent to a server.**
 
-- 顶部选择 **月份**（格式 `yyyy-mm`），来源为收款文件中出现过的月份。
-- 表格两个维度并列成两列：
-  - **Month-to-Date**：所选月份的累计收款
-  - **Latest-Date**：所选月份内**最后一个 Doc Date** 当天的收款（看当月时即等于文件最后一天=今天；看过去月份则为该月最后一天，不串月）
-- 每列都有 `∑ Total` 合计行 + 各部门行。
-- 金额以 **MXN** 显示。
-- **导出：** 报表右上角提供 PNG / CSV。
+| Card | Badge | File requirement | Key fields |
+|------|-------|-----------------|------------|
+| **Upload SI (Sales Invoice)** | for Sales Report | `.xlsx` with **one sheet per month** (e.g. `August 2026`) | See Data Processing Rules |
+| **Upload Customer Basic Info** | for L&CAC Cus | `.xlsx` with columns `Customer Name` and `First Cooperate Date` | Used to calculate new L&CAC customer count |
+| **Upload Collection Doc** | for Collection Report | `.xlsx` | `Doc Date`, `Department`, `Debit Amt in FC` |
 
-### 部门处理规则
-- **Finance Dept** 的部门名显示为 **Pending**。
-- 部门排序：**Target Setup 中的部门（按名册先后顺序）→ 其他部门（字母序）→ Pending 放在最末**。
+- **SI file**: after upload the drop zone shows `{n} month(s) · {m} invoice lines · {k} orders (SO)`. SI represents invoiced, customer-signed deliveries — replacing the old Sales Order Report (order-entry basis, which included unshipped orders). A single SI file covers all months of the year; there is no need to upload files month by month.
+- **Customer Basic Info**: shows `Customers {n}` after upload. Customers missing a First Cooperate Date are noted in muted text.
+- **Collection Doc**: shows `{n} docs · {earliest date} → {latest date}`. Doc Date accepts `yyyy-mm-dd` text, native date cells, and Excel serial numbers.
 
----
-
-## 4️⃣ Target Setup（每月名册 + 目标 + 指标口径）
-
-**核心概念：名册、目标、指标口径（schema）都按月份独立存储。**
-
-- 选择年份和月份；新月份可 **📋 Copy from 上月** 或 **✨ Start blank**（仅从上一月复制，不向更早月份链式查找）。
-- 每个部门第一行为汇总行（自动求和，不可编辑）；👑 为分总，目标可选填；可拖拽调整人员顺序与列宽。
-- **Employee ID 必须唯一**：同一分公司内不同人员使用相同 ID 会导致数据合并计算（错误），保存前会校验。
-- **指标口径（schema）** 决定 Sales Report 展示哪些列。每个指标为 `{key,label,unit,src}`：
-  - `unit`：`qty`（数量）或 `amt`（不含税金额）
-  - `src`：`RAC` / `LAC` / `CAC` / `LAC+CAC`（合并 L&CAC 金额）/ `CUST`（L&CAC 新客户数，需上传 Customer Basic Info 才能计算）
-  - 默认口径：RAC(qty)、LAC(amt)、CAC(amt)
-  - 示例（2026-07）：RAC 数量、L&CAC 合并金额、L&CAC 新客户数
-- 点击 **☁️ Save to Cloud** 保存名册 / 目标 / 指标口径。
+> **SI parsing**: the app reads every sheet whose name resolves to a `yyyy-mm` month (format: English month name + year, e.g. `August 2026`) and normalises each row into a flat invoice line.
 
 ---
 
-## 🏗️ 数据处理规则（Sales Report）
+## 2️⃣ Sales Report
 
-### 业务员归属
-订单归属以**名册**为准，与 ERP 中的 Branch 字段无关。匹配逻辑（优先级从高到低）：
-1. 名字完全一致
-2. 名字互相包含（子字符串匹配）
-3. 关键词重叠（长度 >2 的词，取重叠最多者，需重叠 ≥2）
+View salesperson target achievement by **month** and **branch**.
 
-> 名册里 1–6 月常用全名、销售表用简称的历史月份，靠第 2/3 级模糊匹配兜住；建议名册尽量与销售表 Salesman 字段保持一致的写法，最稳。
+### Branch dropdown
+Top to bottom:
+1. Each rostered branch (e.g. Mexico City Branch, Monterrey Branch, Project Dept)
+2. **Other Dept** — orders whose salesperson matches no roster entry (see Data Processing Rules)
+3. **All Branches Summary** — side-by-side comparison of all branches
 
-### 产品线识别
-取 Detail Sales Order 中 `Category Code` 的第 3-5 位（如 `1-RAC-01` → `RAC`）：
-- `RAC` → 统计数量（Qty）和不含税金额（Amt）
-- `LAC` / `CAC` → 统计不含税金额（Amt）和数量
-- 其他（`IST` 安装 / `PAT` 配件 / `SRV`/`SMP` 服务等）→ **不纳入统计**
+> **ERP exclude filters have been removed.** The old Exclude Deleted / Lock Stock·Inner Use / Not-Exist toggles applied to the order-entry data source (draft, stock-locked, and internal orders that had not shipped). SI data is already delivered and signed-off, so those statuses do not generate SI lines. The toggles have been removed from both the UI and all calculations.
 
-### 有效订单（计数口径）⭐
-一个订单**只有包含至少一条 RAC/LAC/CAC 明细时**，才计入 **Orders 数和 Custs 数**。纯配件 / 服务 / 安装单（只有 PAT/SRV/IST 等）不计入订单数与客户数（它们对三线金额本就贡献为 0）。此规则同时作用于单分公司、Other Dept、All Branches Summary 与 Collection 无关。
+### Single-branch view
+- First row: branch total (`∑ {branch} Total`)
+- Then: team leads (👑) / group subtotals + individual salespeople
+- Each metric (defined by the schema) shows **Target / Progress / Achv%**
+- Achievement colour: 🟢 ≥ 100%　🟡 50–99%　🔴 < 50%
 
-### 金额与数量
-- 金额取 Detail 的 `Final Sub Total Without Tax`（不含税）
-- 数量取 Detail 的 `Quantity`
+### Other Dept view
+Orders whose salesperson's **employee ID and name both fail to match any roster entry** are grouped here.
+- Flat table: `∑ Other Dept Total` row + one row per salesperson with a **Dept** column (raw `Dept Name` from SI), grouped by department, no department subtotals.
+- No targets → **Target and Achv% columns are hidden**; only Progress is shown.
 
-### Other Dept 归属
-业务员经三级匹配后匹配不到任何名册人员（视为不在 Target Setup 中），其订单归入 Other Dept，按原始 `Branch` 字段分部门、部门内按业务员，仅统计有效订单，无目标。
+### All Branches Summary view
+Side-by-side comparison of all branches. Column groups per row:
 
-### YTD 计算规则
-- 从当年 1 月累计到所选月份
-- 每个月使用**该月自己的名册**计算归属；若该月无名册则用**上月名册**代替；若该月及上月都无名册，则该月不计入 YTD
+| Group | Contents |
+|-------|---------|
+| Orders / Customers | Valid order count and unique customer count |
+| RAC | Target(qty) · Qty · Amt · Achv% · Qty(prev month) · MoM% |
+| LAC | Target(amt) · Qty · Amt · Achv% · Amt(prev month) · MoM% |
+| CAC | Target(amt) · Qty · Amt · Achv% · Amt(prev month) · MoM% |
+| Total | Combined Qty + combined Amt for the month |
+| YTD | Jan-to-current-month Qty/Amt per line + combined (rostered months only) |
 
-### 月份识别
-- 销售 `Order Date`：`DD-MM-YYYY`（如 `08-07-2026` → `2026-07`）
-- 收款 `Doc Date`：`yyyy-mm-dd`（同时兼容日期单元格与 Excel 序列号）
+- The `🌐 All Branches` row is the grand total and **includes Other Dept** — orders, customers, all line Qty/Amt, prior-month MoM base, and YTD are all folded in, so the total row equals the sum of every row beneath it.
+- The **Other Dept** row remains a separate line at the bottom with the same column structure; Target/Achv% show `—` (no targets); Qty/Amt/MoM/YTD are calculated normally.
+- Note: because Other Dept has no targets, the **Achv%** in the grand total row uses only rostered branch targets as the denominator (while the numerator includes Other Dept progress), so achievement percentage will be slightly overstated. All additive columns (Qty, Amt, YTD) are exact sums.
+- MoM% colours: ▲ green (growth) ▼ red (decline).
+
+**Export:** every Sales Report view supports PNG and CSV export. The All Branches Summary PNG renders at full width. The CSV `ALL BRANCHES` row includes Other Dept.
 
 ---
 
-## ☁️ 云端同步
+## 3️⃣ China Projects (Manual Entry)
 
-### 存储架构
+Records domestic China delivery deals **not present in the ERP or SI data**. Entries are automatically converted to MXN and **injected into Sales Report calculations** (`computeP`), so single-branch views, Other Dept, All Branches Summary, YTD, MoM, CSV, and PNG all include this data automatically.
 
-| 数据类型 | 存储位置 | Key |
-|----------|----------|-----|
-| 各月名册 | Google Sheets | `rosters` |
-| 各月目标 | Google Sheets | `targets` |
-| 各月指标口径 | Google Sheets | `schemas` |
-| 列宽偏好 | 浏览器 localStorage | 本地生效，不同步 |
-| 销售 / 客户 / 收款 Excel | 不存储 | 每次本地上传，仅内存处理 |
+- **Attribution**: by **branch + employee ID** (`empBranch` / `empId`). The dropdown stores the Employee ID, not free text. Legacy rows without `empBranch` are attributed only when the ID is unambiguous (unique across the current month's roster); otherwise the row is skipped and a re-selection is prompted — preventing cross-branch double-counting.
+- **Amount**: `Sales amount = SO Amt exclude tax × FE Rate` → MXN (rows in MXN use ×1). **Quantity = Qty. Product line = Line.**
+- **Unbilled rows** (exclude-tax amount is blank or 0) contribute neither amount nor quantity.
+- **Counting**: each project counts as **1 order and 1 customer** (deduplicated by project name). China projects are inherently valid orders and are not affected by any filters.
+- **Default mode**: read-only (MXN). A toggle at the top switches to Edit mode (original currency).
+- Data is stored under the `chinaProjects` key in Google Sheets. Click **☁️ Save to Cloud** to persist. The module has its own **🖼 Export PNG** (off-screen full-width table).
 
-> 兼容旧的单一 `roster` key：若云端只有旧 `roster` 而无 `rosters`，加载时会自动映射到当前月。
+---
 
-### Google Sheets 数据结构
-数据存于 `targets` Sheet，每行一个 key-value 对，value 为 JSON 字符串：
+## 4️⃣ Collection Report
 
-| A 列（key） | B 列（value） |
-|-------------|---------------|
-| `rosters` | `{"2026-07":[{branch,people:[{id,name,isManager,group}]}], ...}` |
+Tracks monthly collections by department — useful for monitoring month-to-date totals and the most recent day's receipts.
+
+- Select a **month** (`yyyy-mm`) from months present in the uploaded Collection Doc.
+- The table shows two columns side by side:
+  - **Month-to-Date**: cumulative collections for the selected month
+  - **Latest-Date**: collections on the **last Doc Date** within the selected month (for the current month this equals today; for past months it is the last day of that month — no cross-month leakage)
+- Each column has a `∑ Total` row plus one row per department.
+- Amounts displayed in **MXN**.
+- **Export**: PNG and CSV available top-right.
+
+### Department rules
+- **Finance Dept** is displayed as **Pending**.
+- Sort order: departments listed in Target Setup (roster order) → other departments (alphabetical) → Pending last.
+
+> The Collection Doc parser auto-detects the header row within the first 20 rows (some ERP exports include a banner row before the real header) and uses column-name aliases (`DocDate`/`Doc Date`, `ResponsibleDept`/`Department`, `AmtinFC`/`Debit Amt in FC`), remaining backward-compatible with older export formats.
+
+---
+
+## 5️⃣ Target Setup (Monthly Roster + Targets + Metric Schema)
+
+**Rosters, targets, and metric schemas are stored independently per month.**
+
+- Select a year and month. New months can be initialised by **📋 Copy from previous month** or **✨ Start blank** (copies only from the immediately preceding month — no chain search).
+- The first row of each department is a read-only auto-sum total. 👑 marks team leads (optional targets). Row order and column widths are drag-adjustable.
+- **Employee IDs must be unique and must match the `Salesman Code` (employee number) in the SI file** ⭐:
+  - Attribution now relies entirely on the employee ID. If a roster ID does not match the SI Salesman Code, that person's orders will fall into Other Dept.
+  - Duplicate IDs within the same branch cause data to be merged incorrectly; a validation check runs before saving.
+- **Metric schema** controls which columns appear in the Sales Report. Each metric is `{key, label, unit, src}`:
+  - `unit`: `qty` (quantity) or `amt` (amount excl. tax)
+  - `src`: `RAC` / `LAC` / `CAC` / `LAC+CAC` (combined L&CAC amount) / `CUST` (new L&CAC customers — requires Customer Basic Info upload)
+  - Default schema: RAC (qty), LAC (amt), CAC (amt)
+- Click **☁️ Save to Cloud** to save roster, targets, and schema.
+
+---
+
+## 🏗️ Data Processing Rules (Sales Report)
+
+> From August 2026 the data source changed from **Sales Order Report (order-entry basis)** to **SI — Sales Invoice (delivered and signed-off basis)**. The rules below reflect the current live configuration.
+
+### Data structure
+SI is a **single flat file with one sheet per month**: each row is one product line within one invoice. Header fields (invoice, department, salesperson, customer) repeat on every row — no header-to-detail join is required. Each invoice and each SO maps to exactly one department, salesperson, and customer.
+
+### Salesperson attribution
+Attribution follows the **roster**, not the `Dept Name` field in SI. Match priority:
+1. **Exact employee ID match**: SI `Salesman Code` equals roster `id` → attributed immediately.
+2. **Name fuzzy fallback** (when ID does not match): exact name → substring match → keyword overlap (words longer than 2 chars, ≥ 2 overlapping words required).
+
+> Prerequisite: roster `id` must equal the employee's Salesman Code. Verify this when setting up or updating the roster.
+
+### Product line classification ⭐
+Determined by **Item Code prefix** (Business Unit Code is ignored):
+
+| Prefix | Line | Metrics |
+|--------|------|---------|
+| `MXR…` | **RAC** | Qty + Amt (excl. tax) |
+| `MXL…` | **LAC** | Amt (excl. tax) + Qty |
+| `MXC…` | **CAC** | Amt (excl. tax) + Qty |
+| Anything else | **Not counted** | — |
+
+"Anything else" includes: `MXI` (not CAC), long numeric codes (spare parts — main boards, motors, compressors, remotes), `SRVS` service, `ASC` freight, etc.
+
+> Using the Item Code prefix rather than Business Unit Code automatically strips accessories and service lines that are tagged under a product-line BU, and rescues genuine units whose Business Unit Code was left blank.
+
+### Valid order rule ⭐
+**Order unit = `SO Number`** (one SO may span multiple invoices and/or months). An SO is counted toward **Orders and Customers only if it contains at least one RAC/LAC/CAC line**. Accessory-only, service-only, or freight-only SOs are excluded from order and customer counts (they contribute zero to all product-line amounts anyway). This rule applies to single-branch views, Other Dept, and All Branches Summary.
+
+### Amount and quantity
+- Amount: **`Sub Amount After Discount Without Tax`** (after discount, before down-payment, excl. tax)
+- Quantity: **`Quantity`**
+
+### Cross-month SO handling (Plan B) ⭐
+When a `SO Number` has invoices spread across multiple month sheets:
+- **Amount / Quantity**: counted in each invoice's **own month** (each month counts its own lines).
+- **Order count / Customer count**: counted only in the SO's **earliest month** — never double-counted in later months.
+
+> No cross-month SOs exist in the current 8-month file; this rule is a forward-looking safeguard.
+
+### Other Dept attribution
+When a salesperson's **employee ID and name both fail to match any roster entry**, their orders are placed in Other Dept, grouped by raw `Dept Name`, then by salesperson. Only valid orders are included. No targets.
+
+### YTD calculation
+- Accumulated from January of the current year through the selected month.
+- Each month uses **its own roster** for attribution. If a month has no roster, the **previous month's roster** is used. If neither exists, that month is excluded from YTD.
+
+### Month identification
+- Sales: **sheet name** takes precedence (`August 2026` → `2026-08`). `Invoice Date` (`yyyy-mm-dd`) is used for display/validation only.
+- Collections: `Doc Date` (`yyyy-mm-dd`, plus native date cells and Excel serial numbers).
+
+---
+
+## ☁️ Cloud Sync
+
+### Storage architecture
+
+| Data | Location | Key |
+|------|----------|-----|
+| Monthly rosters | Google Sheets | `rosters` |
+| Monthly targets | Google Sheets | `targets` |
+| Monthly metric schemas | Google Sheets | `schemas` |
+| China Projects | Google Sheets | `chinaProjects` |
+| Column-width preferences | Browser localStorage | Local only, not synced |
+| SI / Customer / Collection Excel files | Not stored | Processed in memory on each upload |
+
+> Legacy `roster` key compatibility: if the sheet has the old single-key `roster` but no `rosters`, it is automatically mapped to the current month on load.
+
+### Google Sheets structure
+Data is stored in a sheet named `targets`. Each row is one key-value pair; the value is a JSON string:
+
+| Column A (key) | Column B (value) |
+|----------------|-----------------|
+| `rosters` | `{"2026-07":[{branch, people:[{id, name, isManager, group}]}], ...}` |
 | `targets` | `{"2026-07":{"Mexico City Branch":{"MX250024":{"RAC":100,"LAC":200000,"CAC":2}}}, ...}` |
 | `schemas` | `{"2026-07":[{"key":"RAC","label":"RAC","unit":"qty","src":"RAC"}, ...], ...}` |
+| `chinaProjects` | `[{month, feRate, empId, empBranch, project, currency, line, qty, soIncl, collProg, soExcl, thirdComm, note, progress}, ...]` |
 
-### 读写流程
-- **读取（页面加载）：** GET 请求到 Apps Script URL，解析 `rosters`/`targets`/`schemas` 并渲染。
-- **写入（Save to Cloud）：** 依次 POST 写入 `rosters`、`targets`、`schemas`，使用 `no-cors` 模式避免 CORS 预检和 URL 超长问题。
+### Read / write flow
+- **Read (page load):** GET request to the Apps Script URL; parses `rosters`, `targets`, `schemas`, and `chinaProjects`.
+- **Write (Save to Cloud):** POST each key in sequence using `no-cors` mode to avoid CORS preflight issues and URL length limits.
 
-### Apps Script 代码（通用 key-value，自动兼容 schemas）
+### Apps Script code (generic key-value store)
 ```javascript
 const SHEET_NAME = 'targets';
 
@@ -226,7 +261,9 @@ function getAllData() {
   const sheet = getOrCreateSheet();
   const data = sheet.getDataRange().getValues();
   const result = {};
-  data.forEach(row => { if (row[0]) { try { result[row[0]] = JSON.parse(row[1]); } catch(e) { result[row[0]] = row[1]; } } });
+  data.forEach(row => {
+    if (row[0]) { try { result[row[0]] = JSON.parse(row[1]); } catch(e) { result[row[0]] = row[1]; } }
+  });
   return result;
 }
 function setData(key, value) {
@@ -245,54 +282,62 @@ function getOrCreateSheet() {
 }
 ```
 
-### 重新部署 Apps Script
-每次改动代码后：script.google.com 打开项目 → 保存（Cmd+S）→ 部署 → 管理部署 → 铅笔图标 → 版本选"新建版本" → 部署。**部署 URL 不变，无需改 HTML 中的 `GS_URL`。**
+### Re-deploying Apps Script
+After any code change: open the project at script.google.com → Save (Cmd+S) → Deploy → Manage deployments → pencil icon → set version to "New version" → Deploy. **The deployment URL does not change; `GS_URL` in the HTML does not need to be updated.**
 
-### 常见排查
-- **Save failed / Failed to fetch**：多为 Apps Script 未重新部署，或网络/授权问题。直接访问 GS_URL 看是否返回 JSON。
-- **Cloud unavailable — offline mode**：页面仍可用，数据只在本地内存；恢复网络后重新打开页面即可同步。
+### Troubleshooting
+| Symptom | Likely cause / fix |
+|---------|-------------------|
+| Save failed / Failed to fetch | Apps Script not re-deployed after a code change, or network/auth issue. Open `GS_URL` directly in a browser and check for a JSON response. |
+| Cloud unavailable — offline mode | The app still works; data is in local memory only. Reload after restoring network access. |
+| Changes not taking effect | Browser or CDN has cached the old HTML. Hard-refresh with `Cmd+Shift+R`. |
 
 ---
 
-## 📤 导出说明
+## 📤 Export Reference
 
-| 模块 | PNG | CSV |
-|------|-----|-----|
-| Sales Report（单分公司 / Other Dept） | ✅ | ✅ |
-| All Branches Summary | ✅（完整宽度） | ✅（含 Other Dept 行） |
+| Module | PNG | CSV |
+|--------|-----|-----|
+| Sales Report — single branch / Other Dept | ✅ | ✅ |
+| All Branches Summary | ✅ (full width) | ✅ (ALL BRANCHES row includes Other Dept) |
+| China Projects | ✅ (off-screen full-width table) | — |
 | Collection Report | ✅ | ✅ |
 
-PNG 导出宽表时会临时移除 `overflow-x` 限制并展开容器宽度，再调用 html2canvas，最后在 `.then()` 与 `.catch()` 中恢复样式。
+- **Export All PNG**: batch-exports all rostered branches + Other Dept + All Branches Summary for the selected month. A floating progress overlay survives report DOM rebuilds during the batch loop.
+- Wide-table PNG export temporarily removes `overflow-x` constraints and expands the container before calling html2canvas, then restores styles in `.then()` and `.catch()`.
 
 ---
 
-## 🔄 更新流程
+## 🔄 Update Procedures
 
-### 更新网页功能
-1. 在对话中描述修改需求，下载新的 HTML
-2. GitHub 仓库 → Add file → Upload files → 覆盖旧文件 → Commit changes
-3. 约 1 分钟后 GitHub Pages 自动更新，**链接不变**
+### Deploying a new HTML version
+1. Download the updated HTML from the development conversation.
+2. GitHub repository → Add file → Upload files → overwrite the existing file (deploy name: `gree_sales_report2.html`) → Commit changes.
+3. GitHub Pages updates automatically within ~1 minute. **The URL does not change.**
 
-### 日常维护
-- **目标数据：** Target Setup → 选月份 →（新月份先 Copy from 上月）→ 填目标 → Save to Cloud
-- **出报表：** Upload Data 上传当日导出的 Sales Order Report / Collection Doc（如需 L&CAC 新客户再传 Customer Basic Info）→ 到对应报表 Tab 选月份查看/导出
-
----
-
-## 🛠️ 技术说明
-
-- 纯前端单文件 HTML，所有逻辑在浏览器运行，`file://` 与 GitHub Pages 均可用
-- 依赖：SheetJS（Excel 解析）、html2canvas（PNG 导出），均 CDN 加载
-- 云端：Google Apps Script（POST 写 / GET 读）+ Google Sheets
-- 部署：GitHub Pages（Public 仓库，免费永久链接）
-- 金额格式：`toLocaleString('es-MX')`，两位小数（MXN）
+### Routine operations
+- **Update targets:** Target Setup → select month → (for a new month: Copy from previous month) → fill in targets → Save to Cloud.
+- **Run a report:** Upload Data → upload the **SI file** (+ Customer Basic Info for L&CAC new customers; + Collection Doc for the collection report) → navigate to the relevant tab → select month → view or export.
+- **Log a China project:** China Projects → Add project → fill in employee ID, project name, amount, product line → Save to Cloud. The entry automatically appears in Sales Report totals.
 
 ---
 
-## 📝 维护记录
+## 🛠️ Technical Notes
 
-| 日期 | 更新内容 |
-|------|----------|
-| 2026-05-13 | 初始版本上线，接入 Google Sheets 云端存储 |
-| 2026-05-31 | 名册/目标改为按月独立存储；新增 Branch Summary（含 MoM、YTD）；云端写入改 POST；新增 Customers 列；修复 PNG 导出截断 |
-| 2026-07 | Branch Summary 合并进 Report 的分公司下拉（All Branches Summary）；三个排除开关默认全开、Lock Stock 与 Inner Use 合并；新增"有效订单"计数口径（须含 RAC/LAC/CAC 明细）；新增 Other Dept 维度（分公司下拉项 + Summary 末行）；新增 Collection Report 收款报表模块（MTD + Latest-Date、Finance→Pending、部门排序）；上传区改为三卡紧凑布局 + Clear 按钮 + 框内状态；Report 更名为 Sales Report；金额口径统一显示为 MXN |
+- Pure front-end single-file HTML. All logic runs in the browser; works via `file://` and GitHub Pages alike.
+- External dependencies: SheetJS (Excel parsing) and html2canvas (PNG export), both loaded from CDN.
+- Cloud layer: Google Apps Script (POST write / GET read) + Google Sheets.
+- Hosting: GitHub Pages (public repository, free permanent URL).
+- Amount formatting: `toLocaleString('es-MX')`, two decimal places (MXN).
+
+---
+
+## 📝 Changelog
+
+| Date | Changes |
+|------|---------|
+| 2026-05-13 | Initial release; Google Sheets cloud storage integrated |
+| 2026-05-31 | Roster/targets changed to per-month storage; Branch Summary added (MoM, YTD); cloud writes switched to POST; Customers column added; PNG export truncation fixed |
+| 2026-07 | Branch Summary merged into Report branch dropdown as All Branches Summary; three exclude toggles defaulted on, Lock Stock and Inner Use merged; valid order rule added (must contain RAC/LAC/CAC line); Other Dept dimension added (dropdown entry + Summary last row); Collection Report module added (MTD + Latest-Date, Finance→Pending, dept sort); upload area redesigned to three-card compact layout with Clear buttons and in-card status; Report renamed to Sales Report; all amounts unified as MXN |
+| 2026-07 (subsequent) | **China Projects** manual-entry module added (branch+ID attribution, SO Amt × FE Rate → MXN, unbilled rows skipped, 1 order + 1 customer per project, injected into computeP); fixed manager placeholder ID cross-branch data injection (composite branch+ID key); Collection Doc parser upgraded to auto-detect header row + column name aliases; Export All PNG batch export added |
+| **2026-08** | **Sales data source switched from Sales Order Report (order-entry) to SI — Sales Invoice (delivered and signed-off)**. Single multi-sheet file; month = sheet name. **Product line now determined by Item Code prefix** (`MXR→RAC` / `MXL→LAC` / `MXC→CAC`; all others including MXI not counted). **Order unit changed to SO Number** (multi-invoice SO deduplication). **Salesperson attribution switched to employee ID** (Salesman Code exact match; name fuzzy fallback). **Three ERP exclude filters removed**. Cross-month SOs use **Plan B** (amounts by invoice month; order/customer counted once in earliest month). Amount column: `Sub Amount After Discount Without Tax`. **All Branches Summary grand total now includes Other Dept** (table and CSV), making the total row equal the sum of all rows beneath it |
