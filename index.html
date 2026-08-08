@@ -428,7 +428,18 @@ const DEFAULT_SCHEMA=[
   {key:'CAC',label:'CAC',unit:'amt',src:'CAC'}
 ];
 let cloudSchemas={};   // { "2026-07":[{key,label,unit,src},...], ... }
-function getSchema(month){const s=cloudSchemas[month];return(Array.isArray(s)&&s.length)?s:DEFAULT_SCHEMA.map(m=>({...m}));}
+function getSchema(month){
+  // Schema fallback mirrors the roster fallback in computeP: a month with no
+  // schema of its own inherits the immediately preceding month's schema (single
+  // step, no chain), then the built-in default. This keeps a new month (e.g. a
+  // just-started August) on the same metric dimensions as the prior month
+  // (RAC / L&CAC / L&CAC Cust.) instead of dropping back to the generic default.
+  const s=cloudSchemas[month];
+  if(Array.isArray(s)&&s.length) return s;
+  const prev=month?cloudSchemas[prevMonthStr(month)]:null;
+  if(Array.isArray(prev)&&prev.length) return prev.map(m=>({...m}));
+  return DEFAULT_SCHEMA.map(m=>({...m}));
+}
 function ensureSchema(month){if(!Array.isArray(cloudSchemas[month])||!cloudSchemas[month].length)cloudSchemas[month]=getSchema(month).map(m=>({...m}));return cloudSchemas[month];}
 function fmtByUnit(v,u){return u==='qty'?Number(v).toFixed(0):fmtAmt(v);}
 function makeMetricKey(schema){let i=1,k;do{k='M'+i;i++;}while(schema.some(m=>m.key===k));return k;}
