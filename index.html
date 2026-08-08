@@ -119,6 +119,15 @@ tr.drag-over td{border-top:2px solid #378ADD}
 .ldot{width:10px;height:10px;border-radius:2px;flex-shrink:0}
 .spinner{display:inline-block;width:12px;height:12px;border:2px solid currentColor;border-top-color:transparent;border-radius:50%;animation:spin .6s linear infinite}
 @keyframes spin{to{transform:rotate(360deg)}}
+.rfc-ok{font-size:12px;color:#1D9E75;margin-top:8px}
+.rfc-warn{margin-top:10px;border:1px solid #E9B949;background:#FEF9EE;border-radius:10px;padding:12px 14px}
+.rfc-hd{font-size:12.5px;color:#8A5A00;font-weight:600;line-height:1.45;margin-bottom:10px}
+.rfc-grp{background:#fff;border:1px solid #F0DFB8;border-radius:8px;padding:8px 10px;margin-top:8px}
+.rfc-id{font-size:12px;font-weight:600;color:#B45309;margin-bottom:5px;font-family:ui-monospace,Menlo,monospace}
+.rfc-x{color:#C0392B;font-weight:700}
+.rfc-row{font-size:12px;color:#555;padding:2px 0}
+.rfc-code{font-family:ui-monospace,Menlo,monospace;font-weight:600;color:#333;background:#F3F4F6;padding:1px 5px;border-radius:4px;margin-right:4px}
+.rfc-fcd{color:#999}
 </style>
 </head>
 <body>
@@ -270,6 +279,22 @@ tr.drag-over td{border-top:2px solid #378ADD}
       <div class="fg"><div class="fl">Branch</div><select id="filter-branch" onchange="renderReport()"></select></div>
     </div>
     <div id="report-body"><div class="empty">📋 Upload data and select filters to view report</div></div>
+
+    <details id="excl-panel" style="margin-top:1.5rem;border:1px solid #e5e5e5;border-radius:12px;background:#fff" ontoggle="if(this.open)renderExclusions()">
+      <summary style="cursor:pointer;padding:0.9rem 1.25rem;font-size:14px;font-weight:600;list-style:none;display:flex;align-items:center;justify-content:space-between;gap:8px">
+        <span>🚫 Exclusions <span class="badge amber" style="margin-left:4px;font-weight:500">Manual entry</span></span>
+        <span style="font-size:12px;color:#aaa;font-weight:400">click to expand</span>
+      </summary>
+      <div style="padding:0 1.25rem 1.25rem">
+        <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:1rem">
+          <div style="font-size:12px;color:#888;max-width:660px;line-height:1.4">SO Numbers to <strong>drop entirely</strong> from the Sales Report — e.g. giveaway, inner-use or sample orders that the SI file cannot flag on its own. Any listed SO No. is excluded from all amounts, quantities, order and customer counts, <strong>regardless of SO Type</strong>. SO Type and Usage are labels only; an SO No. not in the current SI file is simply ignored.</div>
+          <button class="btn green" id="excl-save-btn" onclick="saveExclusions()">☁️ Save to Cloud</button>
+        </div>
+        <div id="excl-body"></div>
+        <button class="btn" id="excl-add-btn" style="width:100%;justify-content:center;margin:0.25rem 0 0" onclick="addExclRow()">➕ Add exclusion</button>
+        <div id="excl-save-msg"></div>
+      </div>
+    </details>
   </div>
 </div>
 
@@ -312,6 +337,10 @@ let cloudTargets = {};
 // China Projects: manually-maintained domestic orders not present in the ERP
 // Sales Order Report. Array of rows (see renderChina for the field schema).
 let cloudChinaProjects = [];
+// Exclusions: SO Numbers to drop entirely from the Sales Report (e.g. giveaway /
+// inner-use / sample orders that the SI file cannot flag on its own). Any SO No.
+// listed here is excluded regardless of SO Type. Array of {so,type,usage}.
+let cloudExclusions = [];
 let chinaReadonly = true;   // default open: read-only (all MXN). false = edit (original currency)
 // SI (Sales Invoice) model — single flat file, one sheet per month.
 // salesData / detailData are kept as truthy "loaded" flags (both point at the
@@ -471,6 +500,7 @@ async function loadFromCloud(){
     if(data.targets && typeof data.targets === 'object') cloudTargets = data.targets;
     if(data.schemas && typeof data.schemas === 'object') cloudSchemas = data.schemas;
     if(data.chinaProjects && Array.isArray(data.chinaProjects)) cloudChinaProjects = data.chinaProjects;
+    if(data.exclusions && Array.isArray(data.exclusions)) cloudExclusions = data.exclusions;
     setSyncStatus('ok', 'Cloud sync OK');
     // Auto-set target month selector to the latest month that has roster data
     const rosterMonths=Object.keys(cloudRosters).sort().reverse();
@@ -590,24 +620,27 @@ function handleFile(inp){
       const monthSheets=wb.SheetNames.map(sn=>({sn,month:monthFromSheet(sn)})).filter(x=>x.month);
       if(!monthSheets.length){alert('No month sheets found (expected sheets like "August 2026").');return;}
       const rows=[], meta={}, months={}, lines={};
+      let blankCode=0;   // SI lines missing Customer Code (can't match new-customer dev)
       monthSheets.forEach(({sn,month})=>{
         XLSX.utils.sheet_to_json(wb.Sheets[sn],{defval:''}).forEach(r=>{
           const empId=String(r['Salesman Code']||'').trim();
           const empName=String(r['Salesman Name']||'').trim();
           const cust=String(r['Customer Name']||'').trim();
+          const custCode=String(r['Customer Code']||'').trim();
           const dept=String(r['Dept Name']||'').trim();
           // Order key = SO Number (a SO may span several invoices → one order).
           // Fall back to Invoice Code only when SO Number is blank/"~".
           let so=String(r['SO Number']||'').trim();
           if(!so||so==='~') so=String(r['Invoice Code']||'').trim();
           if(!so) return;                              // no usable key → skip
+          if(!custCode) blankCode++;
           const line=plFromItem(r['Item Code']);       // RAC/LAC/CAC via Item Code prefix, else null
           const qty=parseFloat(String(r['Quantity']).replace(/,/g,''))||0;
           // Amount (locked): Sub Amount After Discount Without Tax = net sales
           // after discount, before down-payment, excluding tax.
           const amt=parseFloat(String(r['Sub Amount After Discount Without Tax']).replace(/,/g,''))||0;
-          rows.push({so,invMonth:month,empId,empName,cust,dept,line,qty,amt});
-          if(!meta[so]) meta[so]={empId,empName,cust,dept};
+          rows.push({so,invMonth:month,empId,empName,cust,custCode,dept,line,qty,amt});
+          if(!meta[so]) meta[so]={empId,empName,cust,custCode,dept};
           (months[so]=months[so]||new Set()).add(month);
           if(line)(lines[so]=lines[so]||{})[line]=true;
         });
@@ -621,7 +654,7 @@ function handleFile(inp){
       populateMonths();
       document.getElementById('file-status').innerHTML=`<div class="file-info">✅ <span>${f.name}</span><span class="badge green">${nInv} orders</span></div>`;
       const ds=document.getElementById('dz-status');
-      ds.innerHTML=`<div class="uz-fname">📄 ${f.name}</div><div class="uz-fres">${nMonths} month(s) · ${rows.length} invoice lines · ${nInv} orders (SO)</div>`;
+      ds.innerHTML=`<div class="uz-fname">📄 ${f.name}</div><div class="uz-fres">${nMonths} month(s) · ${rows.length} invoice lines · ${nInv} orders (SO)${blankCode?` <span style="color:#B45309">· ⚠️ ${blankCode} line(s) without Customer Code</span>`:''}</div>`;
       ds.style.display='block';
       document.getElementById('upload-result').innerHTML=`<div style="text-align:right"><button class="btn sm primary" onclick="switchTab('report')">View Report →</button></div>`;
       document.getElementById('clear-sales-btn').disabled=false;
@@ -635,34 +668,69 @@ dz.addEventListener('dragleave',()=>dz.classList.remove('drag'));
 dz.addEventListener('drop',e=>{e.preventDefault();dz.classList.remove('drag');const f=e.dataTransfer.files[0];if(f){const i=document.getElementById('fi');const dt=new DataTransfer();dt.items.add(f);i.files=dt.files;handleFile(i);}});
 
 // ── Customer Basic Info upload (for L&CAC Cus) ─────────────────
+// Build the "duplicate RFC" warning block shown below the upload box. A repeated
+// RFC (tax ID) means the same customer entity was created more than once in the
+// ERP — which would double-count new-customer development. Blank RFCs and the two
+// exempt RFCs are already filtered out upstream, so `dupes` is exactly what to flag.
+function renderRfcWarning(dupes){
+  if(!dupes||!dupes.length)
+    return '<div class="rfc-ok">✅ No duplicate RFC found — every customer has a unique tax ID.</div>';
+  const groups=dupes.map(d=>{
+    const items=d.rows.map(x=>`<div class="rfc-row"><span class="rfc-code">${esc(x.code)}</span> ${esc(x.name||'(no name)')}${x.fcd?` <span class="rfc-fcd">· ${esc(String(x.fcd))}</span>`:''}</div>`).join('');
+    return `<div class="rfc-grp"><div class="rfc-id">RFC ${esc(d.rfc)} <span class="rfc-x">×${d.rows.length}</span></div>${items}</div>`;
+  }).join('');
+  const total=dupes.reduce((s,d)=>s+d.rows.length,0);
+  return `<div class="rfc-warn">
+    <div class="rfc-hd">⚠️ ${dupes.length} duplicate RFC${dupes.length>1?'s':''} found — ${total} customer records share a tax ID with another. These are likely the same entity created more than once in the ERP; please merge or clean them at the source.</div>
+    ${groups}
+  </div>`;
+}
 function handleCustFile(inp){
   const f=inp.files[0];if(!f)return;
   const rd=new FileReader();
   rd.onload=e=>{
     try{
       const wb=XLSX.read(new Uint8Array(e.target.result),{type:'array'});
-      let nameI=-1,fcdI=-1,hdrRow=-1,rows=null,sheetName='';
+      let nameI=-1,fcdI=-1,rfcI=-1,codeI=-1,hdrRow=-1,rows=null,sheetName='';
       // Scan sheets for a header row containing both Customer Name & First Cooperate Date
       for(const sn of wb.SheetNames){
         const aoa=XLSX.utils.sheet_to_json(wb.Sheets[sn],{header:1,defval:''});
         for(let r=0;r<Math.min(aoa.length,15);r++){
           const row=aoa[r].map(c=>String(c||'').trim());
           const ni=row.indexOf('Customer Name'),fi=row.indexOf('First Cooperate Date');
-          if(ni>=0&&fi>=0){nameI=ni;fcdI=fi;hdrRow=r;rows=aoa;sheetName=sn;break;}
+          if(ni>=0&&fi>=0){nameI=ni;fcdI=fi;rfcI=row.indexOf('RFC');codeI=row.indexOf('Customer Code');hdrRow=r;rows=aoa;sheetName=sn;break;}
         }
         if(hdrRow>=0)break;
       }
       if(hdrRow<0){alert('Could not find columns "Customer Name" and "First Cooperate Date" in this file.');return;}
       custFirstMonth={};let n=0,withDate=0;
+      // New-customer development is matched by Customer Code (exact, unique per
+      // customer — same source as the SI file), NOT by name. custFirstMonth maps
+      // Customer Code → "YYYY-MM" of First Cooperate Date.
+      // RFC duplicate check: each real customer's RFC (tax ID) must be unique.
+      // Two RFCs are allowed to repeat (a generic RFC and one house account);
+      // blank RFCs are skipped (cannot be verified). A repeated non-exempt RFC
+      // means the same entity was created more than once in the ERP.
+      const RFC_EXEMPT=new Set(['BDS2302216Q2','XAXX010101000']);
+      const rfcGroups={};   // normalized RFC -> [{code,name,fcd}]
       for(let r=hdrRow+1;r<rows.length;r++){
         const nm=normCust(rows[r][nameI]);if(!nm)continue;n++;
-        const ym=ymOf(rows[r][fcdI]);if(ym){custFirstMonth[nm]=ym;withDate++;}
+        const code=codeI>=0?String(rows[r][codeI]||'').trim():'';
+        const ym=ymOf(rows[r][fcdI]);
+        if(ym&&code){custFirstMonth[code]=ym;withDate++;}   // key by Customer Code
+        // Collect RFC only for rows that look like a real customer (have a code).
+        if(!code)continue;
+        const rfc=rfcI>=0?String(rows[r][rfcI]||'').trim().toUpperCase():'';
+        if(rfc==='')continue;                       // blank RFC: cannot verify, skip
+        if(RFC_EXEMPT.has(rfc))continue;            // allowed to repeat
+        (rfcGroups[rfc]=rfcGroups[rfc]||[]).push({code,name:String(rows[r][nameI]||'').trim(),fcd:rows[r][fcdI]});
       }
+      const rfcDupes=Object.keys(rfcGroups).filter(k=>rfcGroups[k].length>1).map(k=>({rfc:k,rows:rfcGroups[k]}));
       custInfoLoaded=true;
       const ds2=document.getElementById('dz2-status');
       ds2.innerHTML=`<div class="uz-fname">📄 ${f.name}</div><div class="uz-fres">Customers ${n}${withDate<n?` <span style="color:#999">(${withDate} with date)</span>`:''}</div>`;
       ds2.style.display='block';
-      document.getElementById('cust-result').innerHTML='';
+      document.getElementById('cust-result').innerHTML=renderRfcWarning(rfcDupes);
       document.getElementById('clear-cust-btn').disabled=false;
       document.getElementById('file-status2') && (document.getElementById('file-status2').innerHTML='');
       if(document.getElementById('tab-report').style.display!=='none') renderReport();
@@ -1024,6 +1092,15 @@ function prevMonthStr(month){
   return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0');
 }
 
+// Build the set of SO Numbers to exclude from the Sales Report. A SO is excluded
+// whenever it appears in the Exclusions table with a non-empty SO No. — the SO
+// Type / Usage columns are annotations only and never affect this. Used by every
+// SI aggregation loop (main branches + Other Dept) so exclusion is applied
+// uniformly to amounts, quantities, order counts and customer counts.
+function buildExclSet(){
+  return new Set((cloudExclusions||[]).map(e=>String(e&&e.so!=null?e.so:'').trim()).filter(Boolean));
+}
+
 // SI model: order unit = SO Number. computeP still accepts the old exclude
 // params for call-site compatibility but ignores them (SI is already
 // delivered/valid data — the three ERP toggles were removed).
@@ -1044,10 +1121,11 @@ function computeP(month,bn,excDel,excLS,excNE){
   }
 
   const prog={};bData.people.forEach(p=>prog[p.id]={RAC:0,RAC_amt:0,LAC_qty:0,LAC:0,CAC_qty:0,CAC:0,_custs:new Set(),_ords:0,_newCusts:new Set()});
+  const exclSO=buildExclSet();
 
   // ── Amounts & quantities: by the line's OWN invoice month ──
   siRows.forEach(r=>{
-    if(r.invMonth!==month||!r.line)return;
+    if(r.invMonth!==month||!r.line||exclSO.has(r.so))return;
     const own=ownerOf(r.empId,r.empName);
     if(!own||own.branch!==bn)return;
     const pr=prog[own.p.id];if(!pr)return;
@@ -1061,7 +1139,7 @@ function computeP(month,bn,excDel,excLS,excNE){
   const customerSet=new Set(),racCustomerSet=new Set(),lacCacCustomerSet=new Set();
   let remapped=0;
   Object.keys(soMeta).forEach(so=>{
-    if(soFirstMonth[so]!==month||!soValid[so])return;   // valid SO, counted in its earliest month only
+    if(soFirstMonth[so]!==month||!soValid[so]||exclSO.has(so))return;   // valid, non-excluded SO, counted in its earliest month only
     const meta=soMeta[so];
     const own=ownerOf(meta.empId,meta.empName);
     if(!own||own.branch!==bn)return;
@@ -1071,9 +1149,9 @@ function computeP(month,bn,excDel,excLS,excNE){
     const c=meta.cust,lns=soLines[so]||{};
     if(c){pr._custs.add(c);customerSet.add(c);if(lns['RAC'])racCustomerSet.add(c);if(lns['LAC']||lns['CAC'])lacCacCustomerSet.add(c);}
     if(meta.dept&&meta.dept!==bn)remapped++;            // attribution is by roster, not Dept Name
-    if(custInfoLoaded&&(lns['LAC']||lns['CAC'])){       // L&CAC new customer
-      const nc=normCust(c);
-      if(nc&&custFirstMonth[nc]===month)pr._newCusts.add(nc);
+    if(custInfoLoaded&&(lns['LAC']||lns['CAC'])){       // L&CAC new customer (matched by Customer Code, strict)
+      const cc=meta.custCode;
+      if(cc&&custFirstMonth[cc]===month)pr._newCusts.add(cc);
     }
   });
   // ── Inject manually-maintained China domestic projects ─────────
@@ -1146,9 +1224,10 @@ function computeOther(month,excDel,excLS,excNE){
   const deptMap={};
   const ens=(dept,id,name)=>{if(!deptMap[dept])deptMap[dept]={};if(!deptMap[dept][id])deptMap[dept][id]={name,RAC:0,RAC_amt:0,LAC_qty:0,LAC:0,CAC_qty:0,CAC:0,_ords:0,_custs:new Set(),_newCusts:new Set()};return deptMap[dept][id];};
 
+  const exclSO=buildExclSet();
   // amounts / quantities — by the line's own invoice month
   siRows.forEach(r=>{
-    if(r.invMonth!==month||!r.line)return;
+    if(r.invMonth!==month||!r.line||exclSO.has(r.so))return;
     if(!isOrphan(r.empId,r.empName))return;
     const dept=r.dept||'(No Dept)', id=r.empId||'(No Salesman)', name=r.empName||'(No Salesman)';
     const p=ens(dept,id,name);
@@ -1160,7 +1239,7 @@ function computeOther(month,excDel,excLS,excNE){
   // orders & customers — by the SO's earliest month (valid SO only)
   const custAll=new Set(),racCust=new Set(),lccCust=new Set();let orders_n=0;
   Object.keys(soMeta).forEach(so=>{
-    if(soFirstMonth[so]!==month||!soValid[so])return;
+    if(soFirstMonth[so]!==month||!soValid[so]||exclSO.has(so))return;
     const meta=soMeta[so];
     if(!isOrphan(meta.empId,meta.empName))return;
     const dept=meta.dept||'(No Dept)', id=meta.empId||'(No Salesman)', name=meta.empName||'(No Salesman)';
@@ -1168,7 +1247,7 @@ function computeOther(month,excDel,excLS,excNE){
     p._ords++;orders_n++;
     const c=meta.cust,lns=soLines[so]||{};
     if(c){p._custs.add(c);custAll.add(c);if(lns['RAC'])racCust.add(c);if(lns['LAC']||lns['CAC'])lccCust.add(c);}
-    if(custInfoLoaded&&(lns['LAC']||lns['CAC'])){const nc=normCust(c);if(nc&&custFirstMonth[nc]===month)p._newCusts.add(nc);}
+    if(custInfoLoaded&&(lns['LAC']||lns['CAC'])){const cc=meta.custCode;if(cc&&custFirstMonth[cc]===month)p._newCusts.add(cc);}
   });
 
   const depts=Object.keys(deptMap).sort().map(dept=>({
@@ -1871,6 +1950,8 @@ function exportCollCSV(){
 const CN_CURR=['USD','CNY','MXN'];
 const CN_LINES=['RAC','LAC','CAC'];
 const CN_NOTES=['国内交货','索克出口','墨珠出口'];
+const EXCL_TYPES=['Standard','Inner Use','Sample'];
+const EXCL_USAGES=['Free Promotional Giveaway','Inner Use - Fixed Asset'];
 
 // Separator for the composite salesperson key (branch + id). Employee IDs are
 // only unique WITHIN a branch (manager placeholders like "MGR" repeat across
@@ -2218,6 +2299,89 @@ async function saveChina(){
     msg.innerHTML=`<div class="save-ok">✅ Saved ${cloudChinaProjects.length} China project(s) to Google Sheets</div>`;
     setTimeout(()=>msg.innerHTML='',4000);
     // Refresh Sales Report if it's showing (so the new numbers appear)
+    if(document.getElementById('tab-report').style.display!=='none') renderReport();
+  }catch(e){
+    setSyncStatus('err','Save failed — check connection');
+    alert('Save failed: '+e.message+'\n\nMake sure the Apps Script was re-deployed.');
+  }finally{
+    btn.disabled=false;btn.innerHTML=orig;
+  }
+}
+
+// ── Exclusions ──────────────────────────────────────────────────
+// Manually-maintained SO Numbers dropped from the Sales Report. Only the SO No.
+// is functional (see buildExclSet); SO Type / Usage are annotations. A row with
+// an empty SO No. is auto-removed on blur.
+function renderExclusions(){
+  const el=document.getElementById('excl-body');if(!el)return;
+  const selHTML=(opts,cur,onch)=>`<select onchange="${onch}" style="font-size:12px;padding:5px 6px;width:100%">${opts.map(o=>`<option value="${esc(o)}"${o===cur?' selected':''}>${esc(o)}</option>`).join('')}</select>`;
+  // SO Numbers present in the currently-loaded SI file (for the "not found" hint).
+  const siSet=siRows?new Set(siRows.map(r=>String(r.so||'').trim())):null;
+
+  if(!cloudExclusions.length){
+    el.innerHTML='<div class="empty">🚫 No exclusions yet. Click "➕ Add exclusion" below to add an SO No. to drop from the Sales Report.</div>';
+    return;
+  }
+  let rows='';
+  cloudExclusions.forEach((e,i)=>{
+    const so=String(e.so==null?'':e.so).trim();
+    const missing=(so && siSet && !siSet.has(so))
+      ? `<span title="This SO No. is not in the currently-loaded SI file — it has no effect until that SO appears." style="color:#BA7517;margin-left:5px;font-size:11px">not in current SI</span>` : '';
+    rows+=`<tr>
+      <td class="num" style="color:#aaa;width:34px">${i+1}</td>
+      <td style="min-width:160px"><input class="ri" type="text" value="${esc(e.so||'')}" placeholder="SO No." style="min-width:150px" onchange="exclSetSO(${i},this.value)" onblur="exclBlurSO(${i},this.value)">${missing}</td>
+      <td style="min-width:150px">${selHTML(EXCL_TYPES,EXCL_TYPES.includes(e.type)?e.type:EXCL_TYPES[0],`exclSet(${i},'type',this.value)`)}</td>
+      <td style="min-width:220px">${selHTML(EXCL_USAGES,EXCL_USAGES.includes(e.usage)?e.usage:EXCL_USAGES[0],`exclSet(${i},'usage',this.value)`)}</td>
+      <td style="text-align:center;width:34px"><button class="delbtn" onclick="delExclRow(${i})">🗑</button></td>
+    </tr>`;
+  });
+  el.innerHTML=`
+    <div style="overflow-x:auto;border:1px solid #e5e5e5;border-radius:10px">
+      <table class="rtable" style="min-width:600px">
+        <thead><tr>
+          <th style="width:34px">No</th>
+          <th style="min-width:160px;text-align:left">SO No.</th>
+          <th style="min-width:150px">SO Type</th>
+          <th style="min-width:220px">Usage</th>
+          <th style="width:34px"></th>
+        </tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>`;
+}
+function addExclRow(){
+  cloudExclusions.push({so:'',type:EXCL_TYPES[0],usage:EXCL_USAGES[0]});
+  renderExclusions();
+  setTimeout(()=>{const b=document.getElementById('excl-add-btn');if(b)b.scrollIntoView({behavior:'smooth',block:'center'});},40);
+}
+function delExclRow(i){
+  const e=cloudExclusions[i];
+  if(!confirm(`Delete exclusion "${(e&&e.so)||'#'+(i+1)}"?`))return;
+  cloudExclusions.splice(i,1);
+  renderExclusions();
+}
+function exclSet(i,field,val){if(cloudExclusions[i])cloudExclusions[i][field]=val;}
+function exclSetSO(i,val){if(cloudExclusions[i])cloudExclusions[i].so=String(val).trim();}
+// Empty SO No. on blur → auto-remove the whole row (only when left blank on exit,
+// so clearing-to-retype mid-edit isn't interrupted).
+function exclBlurSO(i,val){
+  if(!cloudExclusions[i])return;
+  if(String(val).trim()===''){cloudExclusions.splice(i,1);renderExclusions();}
+  else renderExclusions();   // refresh the "not in current SI" hint
+}
+async function saveExclusions(){
+  // Drop any blank-SO rows before saving so they don't persist.
+  cloudExclusions=cloudExclusions.filter(e=>String(e&&e.so!=null?e.so:'').trim()!=='');
+  renderExclusions();
+  const btn=document.getElementById('excl-save-btn');const orig=btn.innerHTML;
+  btn.disabled=true;btn.innerHTML='<span class="spinner"></span> Saving…';
+  setSyncStatus('loading','Saving to Google Sheets…');
+  try{
+    await gsSet('exclusions', cloudExclusions);
+    setSyncStatus('ok','Saved ✓  '+new Date().toLocaleTimeString());
+    const msg=document.getElementById('excl-save-msg');
+    msg.innerHTML=`<div class="save-ok">✅ Saved ${cloudExclusions.length} exclusion(s) to Google Sheets</div>`;
+    setTimeout(()=>msg.innerHTML='',4000);
     if(document.getElementById('tab-report').style.display!=='none') renderReport();
   }catch(e){
     setSyncStatus('err','Save failed — check connection');
