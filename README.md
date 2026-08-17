@@ -17,7 +17,6 @@ A **left navigation** splits the app into two areas, because the two run on diff
 |------|-----|
 | **Web app** | https://zoezhao273.github.io/greemexico-salesreport2/gree_sales_report2.html |
 | **GitHub repository** | https://github.com/zoezhao273/greemexico-salesreport2 |
-| **Apps Script URL** | https://script.google.com/macros/s/AKfycbyVug4IbhJ8IhVQySo2dZCHxlXlgCLhOAHeJYyZW6BA5HzKQhRam1uJ_L6t8AlDBxZU/exec |
 
 > Uploading a new HTML file to the repository does not change any of these links.
 
