@@ -17,6 +17,7 @@ A **left navigation** splits the app into two areas, because the two run on diff
 |------|-----|
 | **Web app** | https://zoezhao273.github.io/greemexico-salesreport2/gree_sales_report2.html |
 | **GitHub repository** | https://github.com/zoezhao273/greemexico-salesreport2 |
+| **Apps Script URL** | https://script.google.com/macros/s/AKfycbyVug4IbhJ8IhVQySo2dZCHxlXlgCLhOAHeJYyZW6BA5HzKQhRam1uJ_L6t8AlDBxZU/exec |
 
 > Uploading a new HTML file to the repository does not change any of these links.
 
@@ -306,7 +307,8 @@ The RAC results card has two sections: **Salesperson (per-set)** and **BM (tier 
 One card, read-only with an Edit toggle, three sections:
 1. **3rd Brokerage Fee** (expanded): `SO No.` → `3rd Brokerage fee (MXN, Excl. IVA)`. SOs not listed → fee 0.
 2. **Collection Progress** (expanded): `SO No.` → `Collection Progress (%)`. SOs not listed → 100%. Enter cumulative progress as of month-end.
-3. **Commission-paid** (collapsed): the payout ledger — `Month`, `SO No.`, `SI No.`, `Type`, `Commission (MXN)`, `Salesperson Name`. Normally written by the Post button; editable for manual adjustments/exemptions. A month's calculation only treats **earlier-month** ledger rows as already-paid, so posting the current month does not change its own figures.
+3. **Exemption** (expanded) ⭐: `SO No.` → `Exemption Reason`. Listed SOs are dropped from **all** commission calculations (every stream, salesperson & BM) — e.g. loss-making orders with no margin to pay commission from. Applies to SI invoices and to China projects sharing the SO No. Stored under `commExempt`.
+4. **Commission-paid** (collapsed): the payout ledger — `Month`, `SO No.`, `SI No.`, `Type`, `Commission (MXN)`, `Salesperson Name`. Normally written by the Post button; editable for manual adjustments/exemptions. A month's calculation only treats **earlier-month** ledger rows as already-paid, so posting the current month does not change its own figures.
 
 ### China Projects in commission ⭐
 Each China row joins as a virtual invoice with the row's own inputs: `Project` = both the SO No. and SI No. (ledger key); `3rd Commission` = brokerage fee; `Coll. Progress` = collection %; `SO Amt excl tax` = amount (× FE Rate → MXN). It feeds the RAC-BM / L&CAC-SP / L&CAC-BM streams (per the row's product line), scoped to the owner's unit.
@@ -352,11 +354,12 @@ Each workbook has three sheets: **Summary** (per person: code, name, RAC (ref), 
 | SO three-line totals (brokerage denominators) | Google Sheets | `soDenoms` |
 | 3rd Brokerage fees | Google Sheets | `commBrokerage` |
 | Collection progress | Google Sheets | `commCollection` |
+| Commission exemptions (SOs excluded from all commission) | Google Sheets | `commExempt` |
 | Commission-paid ledger | Google Sheets | `commPaid` |
 | Column-width preferences | Browser localStorage | Local only, not synced |
 | SI / Customer / Collection Excel files | Not stored | Processed in memory on each upload |
 
-> **New cloud keys since the commission module** — `commRuleSP`, `commRuleBM`, `commRuleCom`, `soDenoms`, `commBrokerage`, `commCollection`, `commPaid`. The Apps Script store below is generic (any key), so **no backend change is needed** unless the deployment enforces a key allow-list — in which case add these keys and re-deploy.
+> **New cloud keys since the commission module** — `commRuleSP`, `commRuleBM`, `commRuleCom`, `soDenoms`, `commBrokerage`, `commCollection`, `commExempt`, `commPaid`. The Apps Script store below is generic (any key), so **no backend change is needed** unless the deployment enforces a key allow-list — in which case add these keys and re-deploy.
 
 > Legacy `roster` key compatibility: if the sheet has the old single-key `roster` but no `rosters`, it is automatically mapped to the current month on load.
 
@@ -375,11 +378,12 @@ Data is stored in a sheet named `targets`. Each row is one key-value pair; the v
 | `soDenoms` | `{"MTY-20260707-002": 131393, ...}` (SO → integer RAC+LAC+CAC total) |
 | `commBrokerage` | `[{so, fee}, ...]` (MXN, excl. IVA; missing SO → 0) |
 | `commCollection` | `[{so, pct}, ...]` (0–100; missing SO → 100) |
+| `commExempt` | `[{so, reason}, ...]` (SOs excluded from all commission) |
 | `commPaid` | `[{month, so, si, type, amount, name}, ...]` (`type` ∈ RAC-SP / RAC-BM / COM-SP / COM-BM) |
 | `exclusions` | `[{so, type, usage}, ...]` (only `so` affects calculations; `type` / `usage` are labels) |
 
 ### Read / write flow
-- **Read (page load):** GET request to the Apps Script URL; parses `rosters`, `targets`, `schemas`, `chinaProjects`, `exclusions`, and the commission keys (`commRuleSP`, `commRuleBM`, `commRuleCom`, `soDenoms`, `commBrokerage`, `commCollection`, `commPaid`).
+- **Read (page load):** GET request to the Apps Script URL; parses `rosters`, `targets`, `schemas`, `chinaProjects`, `exclusions`, and the commission keys (`commRuleSP`, `commRuleBM`, `commRuleCom`, `soDenoms`, `commBrokerage`, `commCollection`, `commExempt`, `commPaid`).
 - **Write (Save to Cloud):** POST each key in sequence using `no-cors` mode to avoid CORS preflight issues and URL length limits. Each area saves its own keys (Target Setup → roster/targets/schemas; commission rule cards → their rule key; Module 3 / Post → the input and ledger keys; SO upload → `soDenoms`).
 
 ### Apps Script code (generic key-value store)
