@@ -678,7 +678,6 @@ async function loadFromCloud(){
     if(data.commBrokerage && Array.isArray(data.commBrokerage)) commBrokerage = data.commBrokerage;
     if(data.commCollection && Array.isArray(data.commCollection)) commCollection = data.commCollection;
     if(data.commExempt && Array.isArray(data.commExempt)) commExempt = data.commExempt;
-    if(data.commInpOrder && Array.isArray(data.commInpOrder)) inpOrder = data.commInpOrder;
     if(data.commPaid && Array.isArray(data.commPaid)) commPaid = data.commPaid;
     setSyncStatus('ok', 'Cloud sync OK');
     // Auto-set target month selector to the latest month that has roster data
@@ -3152,53 +3151,58 @@ async function toggleComEdit(){
 
 // ── Module 3: Brokerage / Collection / Exemption / Commission-paid ──
 let inpOpen={brk:true,col:true,exm:true,paid:false};        // paid collapsed by default; others expanded
-let inpOrder=['brk','col','exm'];                            // Part 1-3 order (reorderable); 'paid' is always last
-function normInpOrder(){const valid=['brk','col','exm'];inpOrder=inpOrder.filter(k=>valid.includes(k));valid.forEach(k=>{if(!inpOrder.includes(k))inpOrder.push(k);});}
 function toggleInpSec(k){inpOpen[k]=!inpOpen[k];renderInputs();}
-let inpDragK=null;
-function inpDragStart(k,ev){inpDragK=k;if(ev&&ev.dataTransfer){ev.dataTransfer.effectAllowed='move';try{ev.dataTransfer.setData('text/plain',k);}catch(e){}}}
-function inpDragOver(ev){if(inpDragK)ev.preventDefault();}
-async function inpDrop(k){
-  if(!inpDragK||inpDragK===k){inpDragK=null;return;}
-  normInpOrder();
-  const from=inpOrder.indexOf(inpDragK),to=inpOrder.indexOf(k);
-  if(from<0||to<0){inpDragK=null;return;}
-  inpOrder.splice(from,1);inpOrder.splice(to,0,inpDragK);
-  inpDragK=null;renderInputs();
-  setSyncStatus('loading','Saving section order…');
-  try{await gsSet('commInpOrder',inpOrder);setSyncStatus('ok','Order saved ✓ '+new Date().toLocaleTimeString());}
+
+// Row reordering within a section's SO list. Each section maps to its array
+// and the cloud key to persist after a drop. Works in read-only mode (you are
+// organising records, not editing their values); the moved order is saved.
+const INP_TABLES={
+  brk:{arr:()=>commBrokerage,key:'commBrokerage'},
+  col:{arr:()=>commCollection,key:'commCollection'},
+  exm:{arr:()=>commExempt,key:'commExempt'}
+};
+let inpRowDrag=null;   // {sec, i}
+function inpRowStart(sec,i,ev){inpRowDrag={sec,i};if(ev&&ev.dataTransfer){ev.dataTransfer.effectAllowed='move';try{ev.dataTransfer.setData('text/plain',sec+':'+i);}catch(e){}}}
+function inpRowOver(sec,ev){if(inpRowDrag&&inpRowDrag.sec===sec)ev.preventDefault();}
+async function inpRowDrop(sec,j){
+  if(!inpRowDrag||inpRowDrag.sec!==sec){inpRowDrag=null;return;}
+  const t=INP_TABLES[sec];if(!t){inpRowDrag=null;return;}
+  const arr=t.arr(),i=inpRowDrag.i;
+  inpRowDrag=null;
+  if(i===j||i<0||j<0||i>=arr.length||j>=arr.length)return;
+  const [moved]=arr.splice(i,1);arr.splice(j,0,moved);
+  renderInputs();
+  setSyncStatus('loading','Saving order…');
+  try{await gsSet(t.key,arr);setSyncStatus('ok','Order saved ✓ '+new Date().toLocaleTimeString());}
   catch(e){setSyncStatus('err','Save failed — check connection');}
 }
+// A drag-handle <td> for a reorderable SO row (shown only in read-only mode).
+function inpDragTd(sec,i){return `<td style="width:22px;text-align:center;cursor:grab;color:#ccc;font-size:13px" title="Drag to reorder" draggable="true" ondragstart="inpRowStart('${sec}',${i},event)">⠿</td>`;}
+
 function renderInputs(){
-  normInpOrder();
   const el=document.getElementById('inp-body');if(!el)return;
   const badge=document.getElementById('inp-mode-badge'),btn=document.getElementById('inp-edit-btn');
   if(badge){badge.className=inpEdit?'comm-badge-ed':'comm-badge-ro';badge.textContent=inpEdit?'Editing':'Read-only';}
   if(btn)btn.innerHTML=inpEdit?'💾 Save to cloud':'✏️ Edit';
-  // reorderable = the three Part 1-3 sections (not the ledger); draggable only when not editing rows
-  const sec=(k,title,inner,count,reorder)=>{
-    const drag=reorder?`draggable="true" ondragstart="inpDragStart('${k}',event)" ondragover="inpDragOver(event)" ondrop="inpDrop('${k}')"`:'';
-    const handle=reorder?`<span class="dh" title="Drag to reorder" style="cursor:grab;font-size:13px;color:#ccc">⠿</span>`:'';
-    return `
-    <div style="margin-top:12px;border:1px solid #f0f0ee;border-radius:8px;overflow:hidden" ${drag}>
+  const sec=(k,title,inner,count)=>`
+    <div style="margin-top:12px;border:1px solid #f0f0ee;border-radius:8px;overflow:hidden">
       <div style="display:flex;align-items:center;gap:8px;padding:8px 12px;cursor:pointer;background:#fafaf8" onclick="toggleInpSec('${k}')">
-        ${handle}<span style="font-size:10px;color:#999;transition:transform .15s;transform:rotate(${inpOpen[k]?0:-90}deg)">▼</span>
+        <span style="font-size:10px;color:#999;transition:transform .15s;transform:rotate(${inpOpen[k]?0:-90}deg)">▼</span>
         <span style="font-size:12.5px;font-weight:600;flex:1">${title}</span>
         <span style="font-size:11px;color:#bbb">${count}</span>
       </div>
       ${inpOpen[k]?`<div style="padding:0 12px 12px">${inner}</div>`:''}
     </div>`;
-  };
 
   // Part 1 · 3rd Brokerage Fee
   const brkRows=commBrokerage.map((r,i)=>inpEdit
     ?`<tr><td class="lft"><input class="ri-c wide inp-brk" data-i="${i}" data-f="so" value="${esc(r.so||'')}" style="font-family:ui-monospace,Menlo,monospace"></td>
        <td><input class="ri-c inp-brk" type="text" inputmode="decimal" data-i="${i}" data-f="fee" value="${r.fee??''}"></td>
        <td style="width:34px"><button class="delbtn" onclick="commBrokerage.splice(${i},1);renderInputs()">🗑</button></td></tr>`
-    :`<tr><td class="lft mono">${esc(r.so||'')}</td><td>$${fmtAmt(parseFloat(r.fee)||0)}</td></tr>`).join('');
+    :`<tr ondragover="inpRowOver('brk',event)" ondrop="inpRowDrop('brk',${i})">${inpDragTd('brk',i)}<td class="lft mono">${esc(r.so||'')}</td><td>$${fmtAmt(parseFloat(r.fee)||0)}</td></tr>`).join('');
   const brkAdd=inpEdit?`<tr><td colspan="3" style="text-align:left;padding-top:8px"><button class="btn sm" onclick="collectInpTables();commBrokerage.push({so:'',fee:''});renderInputs()">+ Add SO</button></td></tr>`:'';
-  const brk=`<table class="ctable" style="max-width:480px"><thead><tr><th class="lft">SO No.</th><th style="width:180px">3rd Brokerage fee (MXN, Excl. IVA)</th>${inpEdit?'<th></th>':''}</tr></thead><tbody>${brkRows||''}${brkAdd}</tbody></table>
-    <div class="fn" style="margin-top:6px">SOs not listed → fee 0. Fee is allocated to each invoice by (invoice product-line amount ÷ SO RAC+LAC+CAC total from the Sales Order Report).</div>`;
+  const brk=`<table class="ctable" style="max-width:480px"><thead><tr>${inpEdit?'':'<th style="width:22px"></th>'}<th class="lft">SO No.</th><th style="width:180px">3rd Brokerage fee (MXN, Excl. IVA)</th>${inpEdit?'<th></th>':''}</tr></thead><tbody>${brkRows||''}${brkAdd}</tbody></table>
+    <div class="fn" style="margin-top:6px">SOs not listed → fee 0. Fee is allocated to each invoice by (invoice product-line amount ÷ SO RAC+LAC+CAC total from the Sales Order Report). Drag ⠿ to reorder rows.</div>`;
 
   // Part 2 · Collection Progress (+ Shipping Progress label, informational only)
   const SHIP_OPTS=['Not Shipped','Partially Shipped','Fully Shipped'];
@@ -3207,20 +3211,20 @@ function renderInputs(){
        <td><input class="ri-c inp-col" type="text" inputmode="decimal" data-i="${i}" data-f="pct" value="${r.pct??''}"></td>
        <td><select class="inp-col" data-i="${i}" data-f="ship" style="font-size:11px;padding:4px 6px">${SHIP_OPTS.map(o=>`<option${(r.ship||'')===o?' selected':''}>${o}</option>`).join('')}<option value=""${!r.ship?' selected':''}>—</option></select></td>
        <td style="width:34px"><button class="delbtn" onclick="commCollection.splice(${i},1);renderInputs()">🗑</button></td></tr>`
-    :`<tr><td class="lft mono">${esc(r.so||'')}</td><td>${(parseFloat(r.pct)||0)}%</td><td>${esc(r.ship||'—')}</td></tr>`).join('');
+    :`<tr ondragover="inpRowOver('col',event)" ondrop="inpRowDrop('col',${i})">${inpDragTd('col',i)}<td class="lft mono">${esc(r.so||'')}</td><td>${(parseFloat(r.pct)||0)}%</td><td>${esc(r.ship||'—')}</td></tr>`).join('');
   const colAdd=inpEdit?`<tr><td colspan="4" style="text-align:left;padding-top:8px"><button class="btn sm" onclick="collectInpTables();commCollection.push({so:'',pct:'',ship:''});renderInputs()">+ Add SO</button></td></tr>`:'';
-  const col=`<table class="ctable" style="max-width:560px"><thead><tr><th class="lft">SO No.</th><th style="width:150px">Collection Progress (%)</th><th style="width:140px">Shipping Progress</th>${inpEdit?'<th></th>':''}</tr></thead><tbody>${colRows||''}${colAdd}</tbody></table>
-    <div class="fn" style="margin-top:6px">SOs not listed → 100% collection. Enter cumulative progress as of month-end; payouts top up incrementally as it rises. <strong>Shipping Progress is a status label only</strong> — it does not affect any calculation (commission follows the SI invoices actually issued).</div>`;
+  const col=`<table class="ctable" style="max-width:560px"><thead><tr>${inpEdit?'':'<th style="width:22px"></th>'}<th class="lft">SO No.</th><th style="width:150px">Collection Progress (%)</th><th style="width:140px">Shipping Progress</th>${inpEdit?'<th></th>':''}</tr></thead><tbody>${colRows||''}${colAdd}</tbody></table>
+    <div class="fn" style="margin-top:6px">SOs not listed → 100% collection. Enter cumulative progress as of month-end; payouts top up incrementally as it rises. <strong>Shipping Progress is a status label only</strong> — it does not affect any calculation (commission follows the SI invoices actually issued). Drag ⠿ to reorder rows.</div>`;
 
   // Part 3 · Exemption (SOs excluded from ALL commission)
   const exmRows=commExempt.map((r,i)=>inpEdit
     ?`<tr><td class="lft"><input class="ri-c wide inp-exm" data-i="${i}" data-f="so" value="${esc(r.so||'')}" style="font-family:ui-monospace,Menlo,monospace"></td>
        <td class="lft"><input class="ri-c wide inp-exm" data-i="${i}" data-f="reason" value="${esc(r.reason||'')}" placeholder="e.g. Loss-making order, no margin"></td>
        <td style="width:34px"><button class="delbtn" onclick="commExempt.splice(${i},1);renderInputs()">🗑</button></td></tr>`
-    :`<tr><td class="lft mono">${esc(r.so||'')}</td><td class="lft">${esc(r.reason||'')}</td></tr>`).join('');
+    :`<tr ondragover="inpRowOver('exm',event)" ondrop="inpRowDrop('exm',${i})">${inpDragTd('exm',i)}<td class="lft mono">${esc(r.so||'')}</td><td class="lft">${esc(r.reason||'')}</td></tr>`).join('');
   const exmAdd=inpEdit?`<tr><td colspan="3" style="text-align:left;padding-top:8px"><button class="btn sm" onclick="collectInpTables();commExempt.push({so:'',reason:''});renderInputs()">+ Add SO</button></td></tr>`:'';
-  const exm=`<table class="ctable" style="max-width:560px"><thead><tr><th class="lft" style="width:180px">SO No.</th><th class="lft">Exemption Reason</th>${inpEdit?'<th></th>':''}</tr></thead><tbody>${exmRows||''}${exmAdd}</tbody></table>
-    <div class="fn" style="margin-top:6px">Listed SOs are dropped from <strong>all</strong> commission calculations (every stream, salesperson &amp; BM) — e.g. loss-making orders with no margin to pay commission from. Applies to SI invoices and China projects that share the SO No.</div>`;
+  const exm=`<table class="ctable" style="max-width:560px"><thead><tr>${inpEdit?'':'<th style="width:22px"></th>'}<th class="lft" style="width:180px">SO No.</th><th class="lft">Exemption Reason</th>${inpEdit?'<th></th>':''}</tr></thead><tbody>${exmRows||''}${exmAdd}</tbody></table>
+    <div class="fn" style="margin-top:6px">Listed SOs are dropped from <strong>all</strong> commission calculations (every stream, salesperson &amp; BM) — e.g. loss-making orders with no margin to pay commission from. Applies to SI invoices and China projects that share the SO No. Drag ⠿ to reorder rows.</div>`;
 
   // Part 4 · Commission-paid (ledger)
   const paidRows=commPaid.map((r,i)=>inpEdit
@@ -3236,18 +3240,11 @@ function renderInputs(){
   const paid=`<div style="overflow-x:auto"><table class="ctable"><thead><tr><th style="width:76px">Month</th><th class="lft">SO No.</th><th class="lft">SI No.</th><th style="width:80px">Type</th><th style="width:110px">Commission (MXN)</th><th class="lft">Salesperson Name</th>${inpEdit?'<th></th>':''}</tr></thead><tbody>${paidRows||''}${paidAdd}</tbody></table></div>
     <div class="fn" style="margin-top:6px">The payout ledger — normally written by "Post month to Commission-paid"; editable here for manual adjustments / exemptions. Type distinguishes the four commission streams on the same invoice. A month's calculation only counts ledger rows from EARLIER months as already-paid.</div>`;
 
-  const secDef={
-    brk:['Part 1 · 3rd Brokerage Fee',brk,commBrokerage.length+' SO(s)'],
-    col:['Part 2 · Collection & Shipping',col,commCollection.length+' SO(s)'],
-    exm:['Part 3 · Exemption',exm,commExempt.length+' SO(s)']
-  };
-  // Titles show a stable Part number by CONTENT (brk=1,col=2,exm=3); drag reorders display only.
-  const reorderNote=inpEdit?'':`<div class="fn" style="margin:2px 0 -4px">Drag ⠿ to reorder the first three sections.</div>`;
-  const ordered=inpOrder.map(k=>sec(k,secDef[k][0],secDef[k][1],secDef[k][2],!inpEdit)).join('');
   el.innerHTML=
-    reorderNote+
-    ordered+
-    sec('paid','Part 4 · Commission-paid',paid,commPaid.length+' record(s)',false)+
+    sec('brk','Part 1 · 3rd Brokerage Fee',brk,commBrokerage.length+' SO(s)')+
+    sec('col','Part 2 · Collection & Shipping',col,commCollection.length+' SO(s)')+
+    sec('exm','Part 3 · Exemption',exm,commExempt.length+' SO(s)')+
+    sec('paid','Part 4 · Commission-paid',paid,commPaid.length+' record(s)')+
     (inpEdit?`<div style="margin-top:10px"><button class="btn sm" onclick="inpEdit=false;renderInputs()">Cancel (discard)</button></div>`:'');
 }
 function collectInpTables(){
