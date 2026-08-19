@@ -389,10 +389,10 @@ tr.drag-over td{border-top:2px solid #378ADD}
   <div class="filters">
     <div class="fg"><div class="fl">Month</div><select id="comm-month" onchange="renderCommission()"><option>—</option></select></div>
     <div class="fg"><div class="fl">&nbsp;</div><button class="btn blue" id="comm-post-btn" onclick="postCommissionPaid()">📤 Post month to Commission-paid</button></div>
+    <div class="fg"><div class="fl">&nbsp;</div><button class="btn" id="comm-unpost-btn" onclick="unpostCommissionPaid()" style="display:none">↩︎ Unpost this month</button></div>
     <div class="fg"><div class="fl">&nbsp;</div><button class="btn" id="comm-export-btn" onclick="exportCommissionXLSX()">📊 Export Excel (all + per-dept)</button></div>
-    <div style="flex:1"></div>
-    <div id="comm-totals" style="font-size:12.5px;color:#555;display:flex;gap:16px;align-items:center"></div>
   </div>
+  <div id="comm-totals" style="font-size:12.5px;color:#555;display:flex;gap:16px;align-items:center;margin:8px 2px 0"></div>
 
   <div class="tabs" style="margin-bottom:1.25rem">
     <button class="ctab active" id="ctab-rac" onclick="switchCommTab('rac')">RAC</button>
@@ -679,6 +679,7 @@ async function loadFromCloud(){
     if(data.commCollection && Array.isArray(data.commCollection)) commCollection = data.commCollection;
     if(data.commExempt && Array.isArray(data.commExempt)) commExempt = data.commExempt;
     if(data.commPaid && Array.isArray(data.commPaid)) commPaid = data.commPaid;
+    await seedPaidOutExclusions();     // one-time import of Jan–Jun paid-out SIs (idempotent)
     setSyncStatus('ok', 'Cloud sync OK');
     // Auto-set target month selector to the latest month that has roster data
     const rosterMonths=Object.keys(cloudRosters).sort().reverse();
@@ -2772,6 +2773,171 @@ let commBrokerage = [];      // [{so, fee}]        fee in MXN excl. IVA; missing
 let commCollection = [];     // [{so, pct}]        pct 0-100; missing SO → 100
 let commExempt = [];         // [{so, reason}]     SOs fully excluded from ALL commission
 let commPaid = [];           // [{month, so, si, type, amount, name}]  the payout ledger
+
+// ── One-time paid-out import (Jan–Jun 2026, paid outside this tool) ──────────
+// Each SI here was already paid in full (100%) before this tool ran. Stored as
+// Commission-paid rows with BLANK type/amount → treated as SI-level exclusions:
+// skipped in every commission stream, payout only (achievement is untouched),
+// and never overwritten by Post/Unpost. [month, SO No., SI No., Salesperson]
+const PAIDOUT_SEED=[
+["2026-01","MTY-20251229-001","SI-MX-2512-00003","Olam Yhoshua Arriaga Segovia"],
+["2026-01","MX-20260122-001","SI-MX-2601-00001","Noemi  Marina Alvarez Moreno"],
+["2026-01","MTY-20260126-002","SI-MX-2601-00002","Luis Roberto Valerio Ambriz"],
+["2026-01","MX-20260127-001","SI-MX-2601-00003","Norka Yamile Aranda UC"],
+["2026-01","GDL-20260126-001","SI-MX-2601-00005","Sebastián (Yu Chen)"],
+["2026-01","MID-20260128-002","SI-MX-2601-00006","Norka Yamile Aranda UC"],
+["2026-02","MTY-20260129-001","SI-MX-2601-00008","Olam Yhoshua Arriaga Segovia"],
+["2026-02","MX-20260126-002","SI-MX-2601-00010","Gabriela Chavez Perez"],
+["2026-02","MX-20260123-002","SI-MX-2601-00012","Gabriela Chavez Perez"],
+["2026-02","MID-20260129-001","SI-MX-2601-00013","Norka Yamile Aranda UC"],
+["2026-02","MTY-20260130-001","SI-MX-2601-00014","Luis Roberto Valerio Ambriz"],
+["2026-02","MTY-20260203-001","SI-MX-2602-00001","Olam Yhoshua Arriaga Segovia"],
+["2026-02","MX-20260209-002","SI-MX-2602-00002","Gesi (Gesi Tian)"],
+["2026-02","MTY-20260212-001","SI-MX-2602-00003","Olam Yhoshua Arriaga Segovia"],
+["2026-02","MTY-20260211-001","SI-MX-2602-00007","Luis Roberto Valerio Ambriz"],
+["2026-02","MID-20260218-001","SI-MX-2602-00009","Norka Yamile Aranda UC"],
+["2026-02","GDL-20260217-001","SI-MX-2602-00011","Sebastián (Yu Chen)"],
+["2026-02","MX-20260218-001","SI-MX-2602-00013","Miguel Angel Heredia Marquez"],
+["2026-02","GDL-20260221-001","SI-MX-2602-00014","Sebastián (Yu Chen)"],
+["2026-03","GDL-20260226-001","SI-MX-2602-00015","Sebastián (Yu Chen)"],
+["2026-03","GDL-20260227-001","SI-MX-2602-00017","Sebastián (Yu Chen)"],
+["2026-03","MTY-20260225-001","SI-MX-2602-00019","Maria de Los Angeles de Haro Grimaldo"],
+["2026-03","MX-20260226-001","SI-MX-2602-00020","Gabriela Chavez Perez"],
+["2026-03","MX-20260227-001","SI-MX-2602-00022","Eduardo Alberto Legorreta"],
+["2026-03","MX-20260227-002","SI-MX-2603-00001","Miguel Angel Heredia Marquez"],
+["2026-03","MX-20260226-002","SI-MX-2603-00002","Noemi  Marina Alvarez Moreno"],
+["2026-03","MTY-20260303-001","SI-MX-2603-00003","Olam Yhoshua Arriaga Segovia"],
+["2026-03","GDL-20260303-001","SI-MX-2603-00004","Sebastián (Yu Chen)"],
+["2026-03","MID-20260306-001","SI-MX-2603-00005","Norka Yamile Aranda UC"],
+["2026-03","MX-20260306-002","SI-MX-2603-00008","Gesi (Gesi Tian)"],
+["2026-03","MX-20260312-001","SI-MX-2603-00011","Gesi (Gesi Tian)"],
+["2026-03","MX-20260306-001","SI-MX-2603-00012","Miguel Angel Heredia Marquez"],
+["2026-03","MX-20260319-001","SI-MX-2603-00013","Gabriela Chavez Perez"],
+["2026-03","MX-20260320-002","SI-MX-2603-00014","Gabriela Chavez Perez"],
+["2026-03","MTY-20260323-003","SI-MX-2603-00016","Maria de Los Angeles de Haro Grimaldo"],
+["2026-03","MX-20260324-001","SI-MX-2603-00018","Gesi (Gesi Tian)"],
+["2026-03","MTY-20260323-002","SI-MX-2603-00019","Olam Yhoshua Arriaga Segovia"],
+["2026-03","MTY-20260324-001","SI-MX-2603-00020","Olam Yhoshua Arriaga Segovia"],
+["2026-03","PRJ-20260324-003","SI-MX-2603-00021","Sebastián (Yu Chen)"],
+["2026-03","MX-20260325-001","SI-MX-2603-00024","Miguel Angel Heredia Marquez"],
+["2026-03","MTY-20260323-001","SI-MX-2603-00025","Olam Yhoshua Arriaga Segovia"],
+["2026-03","MTY-20260327-001","SI-MX-2603-00033","Olam Yhoshua Arriaga Segovia"],
+["2026-03","MX-20260219-001","SI-MX-2603-00049","Noemi  Marina Alvarez Moreno"],
+["2026-04","GDL-20260324-002","SI-MX-2603-00027","Ahumada Armenta Hugo Armando"],
+["2026-04","PRJ-20260323-003","SI-MX-2603-00028","Sebastián (Yu Chen)"],
+["2026-04","MX-20260320-001","SI-MX-2603-00029","Gabriela Chavez Perez"],
+["2026-04","MTY-20260330-001","SI-MX-2603-00031","Olam Yhoshua Arriaga Segovia"],
+["2026-04","MX-20260318-001","SI-MX-2603-00035","Gesi (Gesi Tian)"],
+["2026-04","GDL-20260330-002","SI-MX-2603-00036","Ahumada Armenta Hugo Armando"],
+["2026-04","GDL-20260324-001","SI-MX-2603-00038","Ahumada Armenta Hugo Armando"],
+["2026-04","GDL-20260330-001","SI-MX-2603-00039","Ahumada Armenta Hugo Armando"],
+["2026-04","MID-20260325-001","SI-MX-2603-00043","Norka Yamile Aranda UC"],
+["2026-04","MX-20260331-001","SI-MX-2603-00046","Artiguez Utrera Maria del Rosario"],
+["2026-04","MX-20260330-001","SI-MX-2604-00050","Noemi  Marina Alvarez Moreno"],
+["2026-04","MX-20260331-002","SI-MX-2604-00049","Gesi (Gesi Tian)"],
+["2026-04","MTY-20260406-001","SI-MX-2604-00007","Olam Yhoshua Arriaga Segovia"],
+["2026-04","PRJ-20260407-009","SI-MX-2604-00008","Sebastián (Yu Chen)"],
+["2026-04","PRJ-20260408-002","SI-MX-2604-00009","Sebastián (Yu Chen)"],
+["2026-04","MTY-20260413-001","SI-MX-2604-00010","Olam Yhoshua Arriaga Segovia"],
+["2026-04","MX-20260410-001","SI-MX-2604-00011","Gesi (Gesi Tian)"],
+["2026-04","MX-20260410-004","SI-MX-2604-00012","Gabriela Chavez Perez"],
+["2026-04","MID-20260410-001","SI-MX-2604-00013","Norka Yamile Aranda UC"],
+["2026-04","MTY-20260415-001","SI-MX-2604-00015","Olam Yhoshua Arriaga Segovia"],
+["2026-04","MX-20260415-001","SI-MX-2604-00016","Ahumada Armenta Hugo Armando"],
+["2026-04","MX-20260415-002","SI-MX-2604-00017","Ahumada Armenta Hugo Armando"],
+["2026-04","MTY-20260414-002","SI-MX-2604-00018","Olam Yhoshua Arriaga Segovia"],
+["2026-04","MTY-20260408-001","SI-MX-2604-00021","Olam Yhoshua Arriaga Segovia"],
+["2026-04","MX-20260410-002","SI-MX-2604-00022","Gabriela Chavez Perez"],
+["2026-04","MX-20260420-002","SI-MX-2604-00023","Gabriela Chavez Perez"],
+["2026-04","MX-20260420-001","SI-MX-2604-00024","Gesi (Gesi Tian)"],
+["2026-04","PRJ-20260421-002","SI-MX-2604-00025","Sebastián (Yu Chen)"],
+["2026-04","MX-20260424-001","SI-MX-2604-00027","Gabriela Chavez Perez"],
+["2026-04","MTY-20260424-001","SI-MX-2604-00028","Olam Yhoshua Arriaga Segovia"],
+["2026-04","PRJ-20260424-002","SI-MX-2604-00029","Eduardo Alberto Legorreta"],
+["2026-04","PRJ-20260623-001","SI-MX-2607-00033","Sebastián (Yu Chen)"],
+["2026-04","PRJ-20260330-001","SI-MX-2603-00041","Sebastián (Yu Chen)"],
+["2026-04","PRJ-20260319-002","SI-MX-2603-00044","Sebastián (Yu Chen)"],
+["2026-04","PRJ-20260319-001","SI-MX-2603-00045","Sebastián (Yu Chen)"],
+["2026-04","MTY-20260414-001","SI-MX-2604-00014","Maria de Los Angeles de Haro Grimaldo"],
+["2026-04","MX-20260406-001","SI-MX-2604-00019","Miguel Angel Heredia Marquez"],
+["2026-05","MX-20260527-001","SI-MX-2605-00021","Ahumada Armenta Hugo Armando"],
+["2026-05","MX-20260525-004","SI-MX-2605-00026","Ahumada Armenta Hugo Armando"],
+["2026-05","MX-20260525-001","SI-MX-2605-00003","Norka Yamile Aranda UC"],
+["2026-05","MTY-20260521-001","SI-MX-2605-00005","Olam Yhoshua Arriaga Segovia"],
+["2026-05","MX-20260519-002","SI-MX-2605-00007","Norka Yamile Aranda UC"],
+["2026-05","MTY-20260519-001","SI-MX-2605-00004","Olam Yhoshua Arriaga Segovia"],
+["2026-05","PRJ-20260519-001","SI-MX-2605-00009","Maria de Los Angeles de Haro Grimaldo"],
+["2026-05","MX-20260519-001","SI-MX-2605-00008","Ahumada Armenta Hugo Armando"],
+["2026-05","MTY-20260515-001","SI-MX-2605-00016","Olam Yhoshua Arriaga Segovia"],
+["2026-05","MX-20260513-001","SI-MX-2605-00019","Gabriela Chavez Perez"],
+["2026-05","PRJ-20260512-002","SI-MX-2605-00013","Sebastián (Yu Chen)"],
+["2026-05","MX-20260512-003","SI-MX-2605-00018","Gabriela Chavez Perez"],
+["2026-05","MX-20260512-002","SI-MX-2605-00006","Ahumada Armenta Hugo Armando"],
+["2026-05","PRJ-20260511-001","SI-MX-2605-00010","Noemi  Marina Alvarez Moreno"],
+["2026-05","MID-20260507-003","SI-MX-2605-00012","Norka Yamile Aranda UC"],
+["2026-05","MID-20260507-002","SI-MX-2605-00017","Norka Yamile Aranda UC"],
+["2026-05","MID-20260507-001","SI-MX-2605-00011","Norka Yamile Aranda UC"],
+["2026-05","PRJ-20260505-001","SI-MX-2605-00002","Sebastián (Yu Chen)"],
+["2026-05","MX-20260504-003","SI-MX-2605-00001","Noemi  Marina Alvarez Moreno"],
+["2026-05","MX-20260504-002","SI-MX-2605-00014","Gabriela Chavez Perez"],
+["2026-05","MX-20260504-001","SI-MX-2605-00039","Gabriela Chavez Perez"],
+["2026-05","MX-20260430-001","SI-MX-2605-00036","Gabriela Chavez Perez"],
+["2026-05","MTY-20260504-001","SI-MX-2605-00035","Olam Yhoshua Arriaga Segovia"],
+["2026-05","MX-20260429-001","SI-MX-2604-00040","Gabriela Chavez Perez"],
+["2026-05","PRJ-20260429-001","SI-MX-2604-00030","Sebastián (Yu Chen)"],
+["2026-05","MX-20260428-001","SI-MX-2604-00039","Ahumada Armenta Hugo Armando"],
+["2026-05","MTY-20260428-002","SI-MX-2604-00037","Olam Yhoshua Arriaga Segovia"],
+["2026-05","MTY-20260428-001","SI-MX-2604-00042","Olam Yhoshua Arriaga Segovia"],
+["2026-05","PRJ-20260428-001","SI-MX-2604-00032","Eduardo Alberto Legorreta"],
+["2026-05","MX-20260427-001","SI-MX-2604-00031","Ahumada Armenta Hugo Armando"],
+["2026-05","MX-20260423-001","SI-MX-2604-00026","Artiguez Utrera Maria del Rosario"],
+["2026-05","MX-20260420-003","SI-MX-2604-00038","Miguel Angel Heredia Marquez"],
+["2026-05","ASS-20260331-002","SI-MX-2605-00038","Jorge Cerritos Hernandez"],
+["2026-05","ASS-20260330-001","SI-MX-2605-00033","Jorge Cerritos Hernandez"],
+["2026-05","MTY-20260320-001","SI-MX-2603-00068","Olam Yhoshua Arriaga Segovia"],
+["2026-06","MX-20260622-001","SI-MX-2606-00015","Gabriela Chavez Perez"],
+["2026-06","PRJ-20260618-002","SI-MX-2606-00014","Miguel Angel Heredia Marquez"],
+["2026-06","MX-20260618-001","SI-MX-2606-00017","Gabriela Chavez Perez"],
+["2026-06","MX-20260612-001","SI-MX-2606-00012","Ahumada Armenta Hugo Armando"],
+["2026-06","MTY-20260612-002","SI-MX-2606-00009","Olam Yhoshua Arriaga Segovia"],
+["2026-06","MTY-20260612-001","SI-MX-2606-00013","Olam Yhoshua Arriaga Segovia"],
+["2026-06","PRJ-20260611-003","SI-MX-2606-00004","Maria de Los Angeles de Haro Grimaldo"],
+["2026-06","PRJ-20260609-001","SI-MX-2606-00003","Miguel Angel Heredia Marquez"],
+["2026-06","MX-20260609-001","SI-MX-2606-00008","Gabriela Chavez Perez"],
+["2026-06","PRJ-20260608-001","SI-MX-2606-00007","Miguel Angel Heredia Marquez"],
+["2026-06","PRJ-20260603-002","SI-MX-2606-00002","Noemi  Marina Alvarez Moreno"],
+["2026-06","MX-20260604-003","SI-MX-2606-00018","Norka Yamile Aranda UC"],
+["2026-06","MX-20260604-002","SI-MX-2606-00011","Gabriela Chavez Perez"],
+["2026-06","MX-20260604-001","SI-MX-2606-00016","Norka Yamile Aranda UC"],
+["2026-06","PRJ-20260603-001","SI-MX-2606-00010","Sebastián (Yu Chen)"],
+["2026-06","MX-20260601-001","SI-MX-2606-00026","Ahumada Armenta Hugo Armando"],
+["2026-06","MX-20260601-002","SI-MX-2606-00029","Norka Yamile Aranda UC"],
+["2026-06","MX-20260601-003","SI-MX-2606-00030","Adrian Cabrera Ramirez"],
+["2026-06","PRJ-20260529-002","SI-MX-2606-00031","Miguel Angel Heredia Marquez"],
+["2026-06","PRJ-20260529-001","SI-MX-2606-00032","Sebastián (Yu Chen)"],
+["2026-06","PRJ-20260526-001","SI-MX-2606-00028","Maria de Los Angeles de Haro Grimaldo"],
+["2026-06","MX-20260529-001","SI-MX-2605-00025","Ahumada Armenta Hugo Armando"],
+["2026-06","MTY-20260529-001","SI-MX-2605-00027","Olam Yhoshua Arriaga Segovia"],
+["2026-06","MX-20260525-002","SI-MX-2605-00024","Adrian Cabrera Ramirez"],
+["2026-06","PRJ-20260521-003","SI-MX-2607-00028","Sebastián (Yu Chen)"]
+];
+// Idempotent: adds only SIs not already present as a blank-type exclusion row,
+// so repeated page loads never duplicate; typed ledger rows are left alone.
+async function seedPaidOutExclusions(){
+  // Import ONLY when the cloud ledger has no paid-out (blank-type) rows yet.
+  // After the first import, any later deletion or edit is respected — the seed
+  // never re-adds rows, so removed paid-out SIs stay removed.
+  if(commPaid.some(r=>r&&!String(r.type||'').trim())) return 0;
+  let added=0;
+  PAIDOUT_SEED.forEach(([month,so,si,name])=>{
+    const k=String(si).trim(); if(!k)return;
+    commPaid.push({month,so,si,name,type:'',amount:'',note:''});
+    added++;
+  });
+  if(added){ try{ await gsSet('commPaid',commPaid); }catch(e){ console.warn('paid-out seed save failed:',e); } }
+  return added;
+}
+
 let comEdit=false, inpEdit=false;
 
 // Default commercial rule (from "CAC_Commission_Rule.xlsx"; float artifacts normalized)
@@ -2992,10 +3158,26 @@ function commEngine(M){
   };
 
   const exemptSO=new Set(commExempt.map(e=>String(e.so||'').trim()).filter(Boolean));  // SOs excluded from all commission
+  const exemptReason=so=>{const e=commExempt.find(x=>String(x.so||'').trim()===String(so).trim());return e?String(e.reason||'').trim():'';};
+  const exemptRem={};   // personKey → [{si,so,reason,rac,lcac,id,name,branch,inRoster}]  (current month only)
+  // SI-level paid-out exclusions: Commission-paid rows with a blank Type are
+  // historically fully-paid SIs (100%) — skip them in every stream. Payout only;
+  // their sales still count in computeP (achievement), so cross-month SOs keep
+  // the correct opening-month tier for their later, still-payable SIs.
+  const paidOutSI=new Set(commPaid.filter(e=>e&&!String(e.type||'').trim()&&e.si).map(e=>String(e.si).trim()));
 
   const invs=buildInvoiceIndex().filter(iv=>iv.m<=M);
   invs.forEach(iv=>{
-    if(exemptSO.has(String(iv.so).trim()))return;                 // Exemption list → no commission at all
+    if(exemptSO.has(String(iv.so).trim())){                       // Exemption list → no commission at all
+      if(iv.m===M){                                               // …but flag the current month's excluded SIs on the salesperson's detail
+        const ex=ownerOf(iv.m,iv.empId,iv.empName);
+        const pk=ex.p.id+'::'+ex.p.name;
+        (exemptRem[pk]=exemptRem[pk]||[]).push({si:iv.si,so:iv.so,reason:exemptReason(iv.so),
+          rac:iv.racAmt>0,lcac:iv.lcacAmt>0,id:ex.p.id,name:ex.p.name,branch:ex.branch||iv.dept||'—',inRoster:ex.inRoster});
+      }
+      return;
+    }
+    if(paidOutSI.has(String(iv.si).trim()))return;                // Paid-out SI (imported) → fully settled, skip
     const own=ownerOf(iv.m,iv.empId,iv.empName);
     const denom=cloudSoDenoms[String(iv.so).trim()];
     const fee=feeOf(String(iv.so).trim());
@@ -3010,8 +3192,8 @@ function commEngine(M){
     if(racGross>0||(fee&&iv.racAmt>0)){
       if(feeR===null&&iv.racAmt>0){warnings.push(`SO ${iv.so}: brokerage fee set but SO 3-line total missing — upload the Sales Order Report (SI ${iv.si} skipped in RAC)`);}
       else if(!isRacBM){                                              // A · RAC salesperson (BM excluded)
-        const full=racGross-(feeR||0);
-        push('RAC-SP',{id:own.p.id,name:own.p.name,branch:own.branch||iv.dept||'—',inRoster:own.inRoster},iv,racGross,feeR||0,null,full,pct,paid['RAC-SP::'+iv.si]||0,[]);
+        const full=racGross;  // RAC-SP: no brokerage deduction for salesperson
+        push('RAC-SP',{id:own.p.id,name:own.p.name,branch:own.branch||iv.dept||'—',inRoster:own.inRoster},iv,racGross,0,null,full,pct,paid['RAC-SP::'+iv.si]||0,[]);
       }
     }
     if(racBm&&iv.racAmt>0){                                           // B · RAC BM (dept-wide invoices)
@@ -3061,6 +3243,7 @@ function commEngine(M){
   (cloudChinaProjects||[]).forEach((cp,ci)=>{
     if(!cp.month||cp.month>M||!cp.empId||!cp.empBranch)return;
     if(exemptSO.has(String((cp.project||'').trim())))return;       // China project on the Exemption list
+    if(paidOutSI.has(String((cp.project||'').trim())))return;       // China project SI on the paid-out list
     const excl=parseFloat(String(cp.soExcl).replace(/,/g,''))||0;if(excl<=0)return;
     const rate=(cp.currency==='MXN')?1:(parseFloat(cp.feRate)||1);
     const mxn=excl*rate;
@@ -3095,7 +3278,7 @@ function commEngine(M){
     }
   });
 
-  return {rows,warnings};
+  return {rows,warnings,exemptRem};
 }
 
 // ── Rendering ─────────────────────────────────────────────────
@@ -3152,6 +3335,11 @@ async function toggleComEdit(){
 // ── Module 3: Brokerage / Collection / Exemption / Commission-paid ──
 let inpOpen={brk:true,col:true,exm:true,paid:false};        // paid collapsed by default; others expanded
 function toggleInpSec(k){inpOpen[k]=!inpOpen[k];renderInputs();}
+// Part 4 is additionally grouped by month; each month collapses independently,
+// all collapsed by default (a month is open only if explicitly toggled).
+let inpPaidOpenMonths={};
+function toggleInpPaidMonth(m){inpPaidOpenMonths[m]=!inpPaidOpenMonths[m];renderInputs();}
+function addPaidRow(){collectInpTables();commPaid.push({month:'',so:'',si:'',type:'RAC-SP',amount:'',name:'',note:''});inpPaidOpenMonths['(no month)']=true;renderInputs();}
 
 // Row reordering within a section's SO list. Each section maps to its array
 // and the cloud key to persist after a drop. Works in read-only mode (you are
@@ -3179,11 +3367,152 @@ async function inpRowDrop(sec,j){
 // A drag-handle <td> for a reorderable SO row (shown only in read-only mode).
 function inpDragTd(sec,i){return `<td style="width:22px;text-align:center;cursor:grab;color:#ccc;font-size:13px" title="Drag to reorder" draggable="true" ondragstart="inpRowStart('${sec}',${i},event)">⠿</td>`;}
 
+// ── Per-column filters (Part 1–4) ─────────────────────────────
+// Excel-style: each column header carries a ▾ button; clicking opens a
+// checkbox list of that column's distinct values. Filters combine with AND
+// across columns and are VIEW-ONLY (read-only mode). Rows are always rendered
+// with their true array index; non-matching rows are just display:none, so
+// drag-reorder indices and edit-mode input collection are never disturbed.
+let inpFilters={brk:{},col:{},exm:{},paid:{}};   // sec -> {field: Set(displayValues)}
+const INP_COLS={
+  brk:[['so','SO No.'],['fee','3rd Brokerage Fee']],
+  col:[['so','SO No.'],['pct','Collection %'],['ship','Shipping']],
+  exm:[['so','SO No.'],['reason','Reason']],
+  paid:[['month','Month'],['so','SO No.'],['si','SI No.'],['type','Type'],['amount','Commission'],['name','Name'],['note','Note']]
+};
+function inpArr(sec){return {brk:commBrokerage,col:commCollection,exm:commExempt,paid:commPaid}[sec]||[];}
+// Display string for a cell — MUST match what the read-only row actually shows,
+// so filtering by a listed value keeps exactly the rows the user sees.
+function inpDisp(sec,f,r){
+  if(f==='pct')return (parseFloat(r.pct)||0)+'%';
+  if(f==='fee')return '$'+fmtAmt(parseFloat(r.fee)||0);
+  if(f==='ship')return r.ship||'—';
+  if(sec==='paid'){                                // paid rows: match the on-screen cells
+    const excl=!String(r.type||'').trim();
+    if(f==='type')return excl?'已付·100%':String(r.type||'');
+    if(f==='amount')return excl?'—':'$'+fmtAmt(parseFloat(r.amount)||0);
+  }
+  if(f==='amount')return '$'+fmtAmt(parseFloat(r.amount)||0);
+  return (r[f]==null?'':String(r[f]));
+}
+function inpColActive(sec,f){return !!(inpFilters[sec]&&inpFilters[sec][f]);}
+function inpSecActive(sec){return !!(inpFilters[sec]&&Object.keys(inpFilters[sec]).length);}
+function inpRowHidden(sec,r){
+  if(inpEdit)return false;                       // filters are a read-only view aid
+  const ff=inpFilters[sec];if(!ff)return false;
+  for(const f in ff){const S=ff[f];if(S&&!S.has(inpDisp(sec,f,r)))return true;}
+  return false;
+}
+function inpHide(sec,r){return inpRowHidden(sec,r)?' style="display:none"':'';}
+function inpFCount(sec,arr){if(inpEdit)return [arr.length,arr.length];const s=arr.filter(r=>!inpRowHidden(sec,r)).length;return [s,arr.length];}
+function inpCountLbl(sec,arr,unit){const[s,t]=inpFCount(sec,arr);return (inpEdit||s===t)?(t+' '+unit):(s+' / '+t+' '+unit);}
+// Funnel button placed inside a column header (read-only only).
+function inpFHdr(sec,f){
+  if(inpEdit)return '';
+  const on=inpColActive(sec,f);
+  return `<button onclick="event.stopPropagation();inpOpenFilter('${sec}','${f}',event)" title="Filter this column"
+    style="margin-left:5px;border:1px solid ${on?'#4a8f6f':'#ddd'};background:${on?'#e8f6ee':'#fff'};color:${on?'#2a7d55':'#aaa'};border-radius:4px;font-size:9px;line-height:1;padding:2px 4px;cursor:pointer;vertical-align:middle">▾</button>`;
+}
+// Active-filter banner shown at the top of a section's body.
+function inpChip(sec,arr,unit){
+  if(inpEdit||!inpSecActive(sec))return '';
+  const[s,t]=inpFCount(sec,arr);
+  const cols=Object.keys(inpFilters[sec]).map(f=>((INP_COLS[sec].find(c=>c[0]===f)||[])[1]||f)).join(', ');
+  return `<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;font-size:11px;color:#2a7d55;background:#eef8f1;border:1px solid #cfe9d8;border-radius:6px;padding:5px 8px">
+    <span>Filtered by ${esc(cols)} — showing ${s} of ${t} ${unit}</span>
+    <button class="btn sm" style="margin-left:auto" onclick="inpFClear('${sec}')">Clear filters</button></div>`;
+}
+function inpFClear(sec){inpFilters[sec]={};renderInputs();}
+// ── Reconciliation: SOs typed in Part 1/2/3 that match no loaded invoice ──────
+// A brokerage/collection/exemption row only has effect if its SO matches an SO
+// in the loaded SI data (or a China project). Unmatched SOs are silent no-ops
+// (usually a typo or stray spacing), so surface them as a concise warning.
+function commInvoiceSOSet(){
+  const s=new Set();
+  (typeof siRows!=='undefined'&&siRows||[]).forEach(r=>{const so=String(r.so||'').trim();if(so)s.add(so);});
+  (typeof cloudChinaProjects!=='undefined'&&cloudChinaProjects||[]).forEach(cp=>{const p=String(cp&&cp.project||'').trim();if(p)s.add(p);});
+  return s;
+}
+// Reconciliation cell. Matched → note that this SO is in the loaded SI file.
+// Not matched (or no SI loaded) → blank: this upload's invoices simply don't
+// include this SO, i.e. the special case doesn't apply here.
+function inpMatchTd(invSO,so){
+  const s=String(so||'').trim();
+  if(invSO&&s&&invSO.has(s))
+    return '<td class="lft" style="color:#2a7d55;font-size:11px;white-space:nowrap">Matched to SI file</td>';
+  return '<td></td>';
+}
+// Popover
+let inpFPop=null;
+function inpCloseFilter(){if(inpFPop){inpFPop.remove();inpFPop=null;document.removeEventListener('mousedown',inpFOutside,true);document.removeEventListener('scroll',inpScrollClose,true);}}
+function inpFOutside(e){if(inpFPop&&!inpFPop.contains(e.target))inpCloseFilter();}
+function inpScrollClose(e){if(inpFPop&&inpFPop.contains(e.target))return;inpCloseFilter();}  // scrolling inside the popover keeps it open; page scroll closes it
+function inpOpenFilter(sec,f,ev){
+  inpCloseFilter();
+  const arr=inpArr(sec),seen=new Set(),vals=[];
+  arr.forEach(r=>{const v=inpDisp(sec,f,r);if(!seen.has(v)){seen.add(v);vals.push(v);}});
+  vals.sort((a,b)=>a.localeCompare(b,undefined,{numeric:true}));
+  const cur=(inpFilters[sec]||{})[f]||null;
+  const pop=document.createElement('div');inpFPop=pop;
+  pop.style.cssText='position:fixed;z-index:9999;display:flex;flex-direction:column;background:#fff;border:1px solid #ddd;border-radius:8px;box-shadow:0 6px 24px rgba(0,0,0,.15);padding:8px;width:236px;font-size:12px';
+  pop.innerHTML=
+    `<div style="font-weight:600;margin-bottom:6px">Filter · ${esc((INP_COLS[sec].find(c=>c[0]===f)||[])[1]||f)}</div>`+
+    `<input id="inpf-search" placeholder="Search values…" style="width:100%;box-sizing:border-box;padding:5px 7px;border:1px solid #ddd;border-radius:6px;margin-bottom:6px;font-size:12px">`+
+    `<div style="display:flex;gap:6px;margin-bottom:6px"><button class="btn sm" id="inpf-all" style="flex:1">Select all</button><button class="btn sm" id="inpf-none" style="flex:1">Clear</button></div>`+
+    `<div id="inpf-list" style="flex:1 1 auto;min-height:60px;overflow:auto;border:1px solid #f0f0ee;border-radius:6px;padding:4px">`+
+      (vals.length?vals.map(v=>{const ck=(!cur||cur.has(v))?'checked':'';const lab=v===''?'<em style="color:#999">(blank)</em>':esc(v);const dv=encodeURIComponent(v);
+        return `<label class="inpf-row" data-v="${dv}" style="display:flex;align-items:center;gap:6px;padding:3px 4px;cursor:pointer;border-radius:4px"><input type="checkbox" class="inpf-ck" data-v="${dv}" ${ck}><span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${lab}</span></label>`;}).join('')
+        :`<div style="color:#999;padding:6px">No values</div>`)+
+    `</div>`+
+    `<div style="display:flex;gap:6px;margin-top:8px"><button class="btn sm" id="inpf-apply" style="flex:1;background:#2a7d55;color:#fff;border-color:#2a7d55">Apply</button><button class="btn sm" id="inpf-cancel">Cancel</button></div>`;
+  document.body.appendChild(pop);
+  const b=ev.target.getBoundingClientRect(), margin=8, maxH=Math.min(window.innerHeight-2*margin,420);   // cap → long lists scroll inside
+  pop.style.maxHeight=maxH+'px';                                  // never taller than the viewport → inner list scrolls
+  const h=Math.min(pop.getBoundingClientRect().height,maxH);
+  let left=Math.min(b.left,window.innerWidth-pop.offsetWidth-margin);if(left<margin)left=margin;
+  let top;
+  if(b.bottom+4+h<=window.innerHeight-margin) top=b.bottom+4;                 // below the button
+  else if(b.top-4-h>=margin) top=b.top-4-h;                                   // flipped above
+  else top=Math.max(margin,window.innerHeight-margin-h);                      // clamp into view
+  pop.style.left=left+'px';pop.style.top=top+'px';
+  const list=pop.querySelector('#inpf-list');
+  pop.querySelector('#inpf-search').addEventListener('input',e=>{
+    const q=e.target.value.toLowerCase();
+    list.querySelectorAll('.inpf-row').forEach(row=>{
+      const v=decodeURIComponent(row.dataset.v), ck=row.querySelector('.inpf-ck');
+      if(q){ const hit=v.toLowerCase().includes(q);           // Excel-style: matches auto-checked,
+        row.style.display=hit?'flex':'none'; ck.checked=hit;  // everything else (incl. stale checks) cleared
+      }else{ row.style.display='flex'; ck.checked=(!cur||cur.has(v)); }   // query cleared → back to current-filter state
+    });
+  });
+  pop.querySelector('#inpf-all').onclick=()=>list.querySelectorAll('.inpf-ck').forEach(c=>{if(c.closest('.inpf-row').style.display!=='none')c.checked=true;});
+  pop.querySelector('#inpf-none').onclick=()=>list.querySelectorAll('.inpf-ck').forEach(c=>{if(c.closest('.inpf-row').style.display!=='none')c.checked=false;});
+  pop.querySelector('#inpf-cancel').onclick=inpCloseFilter;
+  const applyFilter=()=>{
+    // Search auto-checks its matches, so "type → Apply" filters straight to the
+    // hits. With an empty search box Apply uses the checkbox states as-is
+    // (manually uncheck values in the full list to exclude them).
+    const q=(pop.querySelector('#inpf-search').value||'').trim();
+    const cks=[...list.querySelectorAll('.inpf-ck')];
+    const pool=q?cks.filter(c=>c.closest('.inpf-row').style.display!=='none'):cks;
+    const checked=pool.filter(c=>c.checked).map(c=>decodeURIComponent(c.dataset.v));
+    if(!checked.length){alert('Select at least one value.');return;}
+    inpFilters[sec]=inpFilters[sec]||{};
+    if(checked.length===vals.length)delete inpFilters[sec][f];   // every value selected → no filter
+    else inpFilters[sec][f]=new Set(checked);
+    inpCloseFilter();renderInputs();
+  };
+  pop.querySelector('#inpf-apply').onclick=applyFilter;
+  pop.querySelector('#inpf-search').addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();applyFilter();}});
+  setTimeout(()=>{document.addEventListener('mousedown',inpFOutside,true);document.addEventListener('scroll',inpScrollClose,true);},0);
+}
+
 function renderInputs(){
   const el=document.getElementById('inp-body');if(!el)return;
   const badge=document.getElementById('inp-mode-badge'),btn=document.getElementById('inp-edit-btn');
   if(badge){badge.className=inpEdit?'comm-badge-ed':'comm-badge-ro';badge.textContent=inpEdit?'Editing':'Read-only';}
   if(btn)btn.innerHTML=inpEdit?'💾 Save to cloud':'✏️ Edit';
+  const invSO=(typeof siRows!=='undefined'&&siRows&&siRows.length)?commInvoiceSOSet():null;   // for the SI-match column (Part 1/2/3)
   const sec=(k,title,inner,count)=>`
     <div style="margin-top:12px;border:1px solid #f0f0ee;border-radius:8px;overflow:hidden">
       <div style="display:flex;align-items:center;gap:8px;padding:8px 12px;cursor:pointer;background:#fafaf8" onclick="toggleInpSec('${k}')">
@@ -3198,10 +3527,10 @@ function renderInputs(){
   const brkRows=commBrokerage.map((r,i)=>inpEdit
     ?`<tr><td class="lft"><input class="ri-c wide inp-brk" data-i="${i}" data-f="so" value="${esc(r.so||'')}" style="font-family:ui-monospace,Menlo,monospace"></td>
        <td><input class="ri-c inp-brk" type="text" inputmode="decimal" data-i="${i}" data-f="fee" value="${r.fee??''}"></td>
-       <td style="width:34px"><button class="delbtn" onclick="commBrokerage.splice(${i},1);renderInputs()">🗑</button></td></tr>`
-    :`<tr ondragover="inpRowOver('brk',event)" ondrop="inpRowDrop('brk',${i})">${inpDragTd('brk',i)}<td class="lft mono">${esc(r.so||'')}</td><td>$${fmtAmt(parseFloat(r.fee)||0)}</td></tr>`).join('');
+       <td style="width:34px"><button class="delbtn" onclick="collectInpTables();commBrokerage.splice(${i},1);renderInputs()">🗑</button></td></tr>`
+    :`<tr ondragover="inpRowOver('brk',event)" ondrop="inpRowDrop('brk',${i})"${inpHide('brk',r)}>${inpDragTd('brk',i)}<td class="lft mono">${esc(r.so||'')}</td><td>$${fmtAmt(parseFloat(r.fee)||0)}</td>${inpMatchTd(invSO,r.so)}</tr>`).join('');
   const brkAdd=inpEdit?`<tr><td colspan="3" style="text-align:left;padding-top:8px"><button class="btn sm" onclick="collectInpTables();commBrokerage.push({so:'',fee:''});renderInputs()">+ Add SO</button></td></tr>`:'';
-  const brk=`<table class="ctable" style="max-width:480px"><thead><tr>${inpEdit?'':'<th style="width:22px"></th>'}<th class="lft">SO No.</th><th style="width:180px">3rd Brokerage fee (MXN, Excl. IVA)</th>${inpEdit?'<th></th>':''}</tr></thead><tbody>${brkRows||''}${brkAdd}</tbody></table>
+  const brk=`<table class="ctable" style="max-width:520px"><thead><tr>${inpEdit?'':'<th style="width:22px"></th>'}<th class="lft">SO No.${inpFHdr('brk','so')}</th><th style="width:180px">3rd Brokerage fee (MXN, Excl. IVA)${inpFHdr('brk','fee')}</th>${inpEdit?'<th></th>':'<th style="width:44px" title="Whether this SO matches an invoice in the loaded SI file">SI</th>'}</tr></thead><tbody>${brkRows||''}${brkAdd}</tbody></table>
     <div class="fn" style="margin-top:6px">SOs not listed → fee 0. Fee is allocated to each invoice by (invoice product-line amount ÷ SO RAC+LAC+CAC total from the Sales Order Report). Drag ⠿ to reorder rows.</div>`;
 
   // Part 2 · Collection Progress (+ Shipping Progress label, informational only)
@@ -3210,41 +3539,80 @@ function renderInputs(){
     ?`<tr><td class="lft"><input class="ri-c wide inp-col" data-i="${i}" data-f="so" value="${esc(r.so||'')}" style="font-family:ui-monospace,Menlo,monospace"></td>
        <td><input class="ri-c inp-col" type="text" inputmode="decimal" data-i="${i}" data-f="pct" value="${r.pct??''}"></td>
        <td><select class="inp-col" data-i="${i}" data-f="ship" style="font-size:11px;padding:4px 6px">${SHIP_OPTS.map(o=>`<option${(r.ship||'')===o?' selected':''}>${o}</option>`).join('')}<option value=""${!r.ship?' selected':''}>—</option></select></td>
-       <td style="width:34px"><button class="delbtn" onclick="commCollection.splice(${i},1);renderInputs()">🗑</button></td></tr>`
-    :`<tr ondragover="inpRowOver('col',event)" ondrop="inpRowDrop('col',${i})">${inpDragTd('col',i)}<td class="lft mono">${esc(r.so||'')}</td><td>${(parseFloat(r.pct)||0)}%</td><td>${esc(r.ship||'—')}</td></tr>`).join('');
+       <td style="width:34px"><button class="delbtn" onclick="collectInpTables();commCollection.splice(${i},1);renderInputs()">🗑</button></td></tr>`
+    :`<tr ondragover="inpRowOver('col',event)" ondrop="inpRowDrop('col',${i})"${inpHide('col',r)}>${inpDragTd('col',i)}<td class="lft mono">${esc(r.so||'')}</td><td>${(parseFloat(r.pct)||0)}%</td><td>${esc(r.ship||'—')}</td>${inpMatchTd(invSO,r.so)}</tr>`).join('');
   const colAdd=inpEdit?`<tr><td colspan="4" style="text-align:left;padding-top:8px"><button class="btn sm" onclick="collectInpTables();commCollection.push({so:'',pct:'',ship:''});renderInputs()">+ Add SO</button></td></tr>`:'';
-  const col=`<table class="ctable" style="max-width:560px"><thead><tr>${inpEdit?'':'<th style="width:22px"></th>'}<th class="lft">SO No.</th><th style="width:150px">Collection Progress (%)</th><th style="width:140px">Shipping Progress</th>${inpEdit?'<th></th>':''}</tr></thead><tbody>${colRows||''}${colAdd}</tbody></table>
+  const col=`<table class="ctable" style="max-width:600px"><thead><tr>${inpEdit?'':'<th style="width:22px"></th>'}<th class="lft">SO No.${inpFHdr('col','so')}</th><th style="width:150px">Collection Progress (%)${inpFHdr('col','pct')}</th><th style="width:140px">Shipping Progress${inpFHdr('col','ship')}</th>${inpEdit?'<th></th>':'<th style="width:44px" title="Whether this SO matches an invoice in the loaded SI file">SI</th>'}</tr></thead><tbody>${colRows||''}${colAdd}</tbody></table>
     <div class="fn" style="margin-top:6px">SOs not listed → 100% collection. Enter cumulative progress as of month-end; payouts top up incrementally as it rises. <strong>Shipping Progress is a status label only</strong> — it does not affect any calculation (commission follows the SI invoices actually issued). Drag ⠿ to reorder rows.</div>`;
 
   // Part 3 · Exemption (SOs excluded from ALL commission)
   const exmRows=commExempt.map((r,i)=>inpEdit
     ?`<tr><td class="lft"><input class="ri-c wide inp-exm" data-i="${i}" data-f="so" value="${esc(r.so||'')}" style="font-family:ui-monospace,Menlo,monospace"></td>
        <td class="lft"><input class="ri-c wide inp-exm" data-i="${i}" data-f="reason" value="${esc(r.reason||'')}" placeholder="e.g. Loss-making order, no margin"></td>
-       <td style="width:34px"><button class="delbtn" onclick="commExempt.splice(${i},1);renderInputs()">🗑</button></td></tr>`
-    :`<tr ondragover="inpRowOver('exm',event)" ondrop="inpRowDrop('exm',${i})">${inpDragTd('exm',i)}<td class="lft mono">${esc(r.so||'')}</td><td class="lft">${esc(r.reason||'')}</td></tr>`).join('');
+       <td style="width:34px"><button class="delbtn" onclick="collectInpTables();commExempt.splice(${i},1);renderInputs()">🗑</button></td></tr>`
+    :`<tr ondragover="inpRowOver('exm',event)" ondrop="inpRowDrop('exm',${i})"${inpHide('exm',r)}>${inpDragTd('exm',i)}<td class="lft mono">${esc(r.so||'')}</td><td class="lft">${esc(r.reason||'')}</td>${inpMatchTd(invSO,r.so)}</tr>`).join('');
   const exmAdd=inpEdit?`<tr><td colspan="3" style="text-align:left;padding-top:8px"><button class="btn sm" onclick="collectInpTables();commExempt.push({so:'',reason:''});renderInputs()">+ Add SO</button></td></tr>`:'';
-  const exm=`<table class="ctable" style="max-width:560px"><thead><tr>${inpEdit?'':'<th style="width:22px"></th>'}<th class="lft" style="width:180px">SO No.</th><th class="lft">Exemption Reason</th>${inpEdit?'<th></th>':''}</tr></thead><tbody>${exmRows||''}${exmAdd}</tbody></table>
+  const exm=`<table class="ctable" style="max-width:600px"><thead><tr>${inpEdit?'':'<th style="width:22px"></th>'}<th class="lft" style="width:180px">SO No.${inpFHdr('exm','so')}</th><th class="lft">Exemption Reason${inpFHdr('exm','reason')}</th>${inpEdit?'<th></th>':'<th style="width:44px" title="Whether this SO matches an invoice in the loaded SI file">SI</th>'}</tr></thead><tbody>${exmRows||''}${exmAdd}</tbody></table>
     <div class="fn" style="margin-top:6px">Listed SOs are dropped from <strong>all</strong> commission calculations (every stream, salesperson &amp; BM) — e.g. loss-making orders with no margin to pay commission from. Applies to SI invoices and China projects that share the SO No. Drag ⠿ to reorder rows.</div>`;
 
-  // Part 4 · Commission-paid (ledger)
-  const paidRows=commPaid.map((r,i)=>inpEdit
-    ?`<tr><td><input class="ri-c inp-paid" style="width:76px" data-i="${i}" data-f="month" value="${esc(r.month||'')}" placeholder="YYYY-MM"></td>
-       <td class="lft"><input class="ri-c wide inp-paid" data-i="${i}" data-f="so" value="${esc(r.so||'')}" style="font-family:ui-monospace,Menlo,monospace"></td>
-       <td class="lft"><input class="ri-c wide inp-paid" data-i="${i}" data-f="si" value="${esc(r.si||'')}" style="font-family:ui-monospace,Menlo,monospace"></td>
-       <td><select class="inp-paid" data-i="${i}" data-f="type" style="font-size:11px;padding:3px">${['RAC-SP','RAC-BM','COM-SP','COM-BM'].map(t=>`<option${r.type===t?' selected':''}>${t}</option>`).join('')}</select></td>
-       <td><input class="ri-c inp-paid" type="text" inputmode="decimal" data-i="${i}" data-f="amount" value="${r.amount??''}"></td>
-       <td class="lft"><input class="ri-c wide inp-paid" data-i="${i}" data-f="name" value="${esc(r.name||'')}"></td>
-       <td style="width:34px"><button class="delbtn" onclick="commPaid.splice(${i},1);renderInputs()">🗑</button></td></tr>`
-    :`<tr><td>${esc(r.month||'')}</td><td class="lft mono">${esc(r.so||'')}</td><td class="lft mono">${esc(r.si||'')}</td><td style="font-size:11px">${esc(r.type||'')}</td><td>$${fmtAmt(parseFloat(r.amount)||0)}</td><td class="lft">${esc(r.name||'')}</td></tr>`).join('');
-  const paidAdd=inpEdit?`<tr><td colspan="7" style="text-align:left;padding-top:8px"><button class="btn sm" onclick="collectInpTables();commPaid.push({month:'',so:'',si:'',type:'RAC-SP',amount:'',name:''});renderInputs()">+ Add row</button></td></tr>`:'';
-  const paid=`<div style="overflow-x:auto"><table class="ctable"><thead><tr><th style="width:76px">Month</th><th class="lft">SO No.</th><th class="lft">SI No.</th><th style="width:80px">Type</th><th style="width:110px">Commission (MXN)</th><th class="lft">Salesperson Name</th>${inpEdit?'<th></th>':''}</tr></thead><tbody>${paidRows||''}${paidAdd}</tbody></table></div>
-    <div class="fn" style="margin-top:6px">The payout ledger — normally written by "Post month to Commission-paid"; editable here for manual adjustments / exemptions. Type distinguishes the four commission streams on the same invoice. A month's calculation only counts ledger rows from EARLIER months as already-paid.</div>`;
+  // Part 4 · Commission-paid (ledger) — grouped by month, each month collapsed by default.
+  // Rows with a BLANK type are imported paid-out SIs (100% settled): they render a
+  // read-only badge instead of a Type select, so edit/save can NEVER mutate their type.
+  const paidBadge='<span class="badge amber" style="font-size:10px" title="Historically paid in full (100%) before this tool — excluded from all later calculation; Type locked; never overwritten by Post/Unpost">已付·100%</span>';
+  const paidRowHtml=i=>{
+    const r=commPaid[i], excl=!String(r.type||'').trim();
+    if(inpEdit){
+      if(excl){                                                    // paid-out row: read-only except Note (Type locked)
+        return `<tr><td>${esc(r.month||'')}</td><td class="lft mono">${esc(r.so||'')}</td><td class="lft mono">${esc(r.si||'')}</td>
+          <td>${paidBadge}</td><td style="color:#bbb">—</td><td class="lft">${esc(r.name||'')}</td>
+          <td class="lft"><input class="ri-c wide inp-paid" data-i="${i}" data-f="note" value="${esc(r.note||'')}" placeholder="—"></td>
+          <td style="width:34px"><button class="delbtn" onclick="collectInpTables();commPaid.splice(${i},1);renderInputs()">🗑</button></td></tr>`;
+      }
+      return `<tr><td><input class="ri-c inp-paid" style="width:76px" data-i="${i}" data-f="month" value="${esc(r.month||'')}" placeholder="YYYY-MM"></td>
+        <td class="lft"><input class="ri-c wide inp-paid" data-i="${i}" data-f="so" value="${esc(r.so||'')}" style="font-family:ui-monospace,Menlo,monospace"></td>
+        <td class="lft"><input class="ri-c wide inp-paid" data-i="${i}" data-f="si" value="${esc(r.si||'')}" style="font-family:ui-monospace,Menlo,monospace"></td>
+        <td><select class="inp-paid" data-i="${i}" data-f="type" style="font-size:11px;padding:3px">${['RAC-SP','RAC-BM','COM-SP','COM-BM'].map(t=>`<option${r.type===t?' selected':''}>${t}</option>`).join('')}</select></td>
+        <td><input class="ri-c inp-paid" type="text" inputmode="decimal" data-i="${i}" data-f="amount" value="${r.amount??''}"></td>
+        <td class="lft"><input class="ri-c wide inp-paid" data-i="${i}" data-f="name" value="${esc(r.name||'')}"></td>
+        <td class="lft"><input class="ri-c wide inp-paid" data-i="${i}" data-f="note" value="${esc(r.note||'')}" placeholder="—"></td>
+        <td style="width:34px"><button class="delbtn" onclick="collectInpTables();commPaid.splice(${i},1);renderInputs()">🗑</button></td></tr>`;
+    }
+    const typeCell=excl?`<td>${paidBadge}</td>`:`<td style="font-size:11px">${esc(r.type||'')}</td>`;
+    const amtCell=excl?`<td style="color:#bbb">—</td>`:`<td>$${fmtAmt(parseFloat(r.amount)||0)}</td>`;
+    return `<tr${inpHide('paid',r)}><td>${esc(r.month||'')}</td><td class="lft mono">${esc(r.so||'')}</td><td class="lft mono">${esc(r.si||'')}</td>${typeCell}${amtCell}<td class="lft">${esc(r.name||'')}</td><td class="lft">${esc(r.note||'')}</td></tr>`;
+  };
+  const paidHead=`<thead><tr><th style="width:76px">Month${inpFHdr('paid','month')}</th><th class="lft">SO No.${inpFHdr('paid','so')}</th><th class="lft">SI No.${inpFHdr('paid','si')}</th><th style="width:92px">Type${inpFHdr('paid','type')}</th><th style="width:110px">Commission (MXN)${inpFHdr('paid','amount')}</th><th class="lft">Salesperson Name${inpFHdr('paid','name')}</th><th class="lft" style="min-width:130px">Note${inpFHdr('paid','note')}</th>${inpEdit?'<th></th>':''}</tr></thead>`;
+  const paidGroups={};
+  commPaid.forEach((r,i)=>{const m=String(r.month||'').trim()||'(no month)';(paidGroups[m]=paidGroups[m]||[]).push(i);});
+  const paidMonths=Object.keys(paidGroups).sort();
+  const paidFilterOn=inpSecActive('paid');                        // any Part-4 column filter active → cross-month view
+  const paidBlocks=paidMonths.map(m=>{
+    const idxs=paidGroups[m];
+    // Filters apply across ALL months: keep only matching rows, auto-expand
+    // matched months, and drop months with no match entirely.
+    const shown=paidFilterOn?idxs.filter(i=>!inpRowHidden('paid',commPaid[i])):idxs;
+    if(paidFilterOn&&!shown.length)return '';
+    const open=paidFilterOn?true:!!inpPaidOpenMonths[m];
+    const nExcl=shown.filter(i=>!String(commPaid[i].type||'').trim()).length, nTyped=shown.length-nExcl;
+    const tag=[nTyped?`${nTyped} posted`:'',nExcl?`${nExcl} paid-out`:''].filter(Boolean).join(' · ');
+    const cnt=paidFilterOn?`${shown.length} of ${idxs.length}`:`${idxs.length}`;
+    const body=open?`<div style="padding:0 10px 10px"><div style="overflow-x:auto"><table class="ctable" style="white-space:nowrap">${paidHead}<tbody>${shown.map(paidRowHtml).join('')}</tbody></table></div></div>`:'';
+    return `<div style="border:1px solid #f0f0ee;border-radius:6px;margin-top:8px;overflow:hidden">
+      <div style="display:flex;align-items:center;gap:8px;padding:7px 10px;cursor:${paidFilterOn?'default':'pointer'};background:#fbfbf9" onclick="${paidFilterOn?'':`toggleInpPaidMonth('${esc(m)}')`}">
+        <span style="font-size:10px;color:#999;transition:transform .15s;transform:rotate(${open?0:-90}deg)">▼</span>
+        <span style="font-size:12px;font-weight:600;flex:1">${esc(m)}</span>
+        <span style="font-size:11px;color:#bbb">${cnt} record(s)${tag?' · '+tag:''}</span>
+      </div>${body}</div>`;
+  }).join('');
+  const paidAdd=inpEdit?`<div style="margin-top:8px"><button class="btn sm" onclick="addPaidRow()">+ Add row</button></div>`:'';
+  const paid=`${inpChip('paid',commPaid,'record(s)')}${paidBlocks||'<div class="fn" style="padding:8px 0">No matching records.</div>'}${paidAdd}
+    <div class="fn" style="margin-top:8px">Grouped by month, collapsed by default. Use the ▾ on any column header to filter — filters apply across <strong>all</strong> months at once (e.g. filter one SO/SI to see every month it was paid in). Rows tagged <span class="badge amber" style="font-size:10px">已付·100%</span> are historically fully-paid SIs (imported once): excluded from <strong>all</strong> later calculation, Type locked, never overwritten by Post/Unpost. Other rows are the normal payout ledger from "Post month to Commission-paid" — a month's calc counts only EARLIER months' typed rows as already-paid. Note is free-text.</div>`;
 
   el.innerHTML=
-    sec('brk','Part 1 · 3rd Brokerage Fee',brk,commBrokerage.length+' SO(s)')+
-    sec('col','Part 2 · Collection & Shipping',col,commCollection.length+' SO(s)')+
-    sec('exm','Part 3 · Exemption',exm,commExempt.length+' SO(s)')+
-    sec('paid','Part 4 · Commission-paid',paid,commPaid.length+' record(s)')+
+    sec('brk','Part 1 · 3rd Brokerage Fee',inpChip('brk',commBrokerage,'SO(s)')+brk,inpCountLbl('brk',commBrokerage,'SO(s)'))+
+    sec('col','Part 2 · Collection & Shipping',inpChip('col',commCollection,'SO(s)')+col,inpCountLbl('col',commCollection,'SO(s)'))+
+    sec('exm','Part 3 · Exemption',inpChip('exm',commExempt,'SO(s)')+exm,inpCountLbl('exm',commExempt,'SO(s)'))+
+    sec('paid','Part 4 · Commission-paid',paid,inpCountLbl('paid',commPaid,'record(s)'))+
     (inpEdit?`<div style="margin-top:10px"><button class="btn sm" onclick="inpEdit=false;renderInputs()">Cancel (discard)</button></div>`:'');
 }
 function collectInpTables(){
@@ -3275,13 +3643,20 @@ async function toggleInpEdit(){
 async function postCommissionPaid(){
   const M=(document.getElementById('comm-month')||{}).value;
   if(!M||M==='—'){alert('Select a month first.');return;}
+  if(M>='2026-01'&&M<='2026-06'){alert(`${M} commissions were paid outside this tool (Jan–Jun 2026). Posting is disabled for these months.`);return;}
   const {rows}=commEngine(M);
   const payRows=rows.filter(r=>Math.abs(r.pay)>=0.005);
   if(!payRows.length){alert('Nothing to post for '+M+'.');return;}
-  const existing=commPaid.filter(e=>e.month===M).length;
-  if(!confirm(`Post ${payRows.length} payout row(s) for ${M} to Commission-paid?`+(existing?`\n\nThis REPLACES the ${existing} existing ${M} row(s) in the ledger (manual edits for ${M} will be lost).`:''))) return;
-  commPaid=commPaid.filter(e=>e.month!==M).concat(payRows.map(r=>({
-    month:M,so:r.so,si:r.si,type:r.type,amount:Math.round(r.pay*100)/100,name:r.person.name
+  const isTyped=e=>!!String(e.type||'').trim();                    // typed = normal payout row; blank type = paid-out exclusion
+  const existing=commPaid.filter(e=>e.month===M&&isTyped(e)).length;
+  const later=[...new Set(commPaid.filter(e=>e.month>M&&isTyped(e)).map(e=>e.month))].sort();
+  let cmsg=`Post ${payRows.length} payout row(s) for ${M} to Commission-paid?`;
+  if(existing)cmsg+=`\n\nThis REPLACES the ${existing} existing ${M} row(s) in the ledger (manual edits for ${M} will be lost).`;
+  if(later.length)cmsg+=`\n\n⚠ ${later.length} LATER month(s) are already posted: ${later.join(', ')}. Their payouts were topped up against ${M}'s current amounts — re-post them after this or their incremental amounts will be off.`;
+  if(!confirm(cmsg)) return;
+  // Replace only this month's TYPED rows; blank-type paid-out exclusions are never touched.
+  commPaid=commPaid.filter(e=>e.month!==M||!isTyped(e)).concat(payRows.map(r=>({
+    month:M,so:r.so,si:r.si,type:r.type,amount:Math.round(r.pay*100)/100,name:r.person.name,note:''
   })));
   renderInputs();renderCommission();
   setSyncStatus('loading','Saving ledger…');
@@ -3289,7 +3664,47 @@ async function postCommissionPaid(){
   catch(e){setSyncStatus('err','Save failed — check connection');}
 }
 
-// ── Results tables ────────────────────────────────────────────
+// Show the Unpost button only when the selected month has rows in the ledger.
+function updateUnpostBtn(){
+  const btn=document.getElementById('comm-unpost-btn');
+  const M=(document.getElementById('comm-month')||{}).value;
+  if(btn){
+    const has=M&&M!=='—'&&commPaid.some(e=>e.month===M&&String(e.type||'').trim());
+    btn.style.display=has?'':'none';
+  }
+  // Months before 2026-07 were paid outside this tool → posting is not allowed.
+  const post=document.getElementById('comm-post-btn');
+  if(post){
+    const locked=M&&M!=='—'&&M<'2026-07';
+    post.disabled=locked;
+    post.style.opacity=locked?'0.45':'';
+    post.style.cursor=locked?'not-allowed':'';
+    post.title=locked?'Locked — '+M+' was paid outside this tool (before 2026-07).':'';
+  }
+}
+
+// Remove the selected month's rows from the Commission-paid ledger (reverses a Post).
+async function unpostCommissionPaid(){
+  const M=(document.getElementById('comm-month')||{}).value;
+  if(!M||M==='—'){alert('Select a month first.');return;}
+  const isTyped=e=>!!String(e.type||'').trim();                    // blank type = paid-out exclusion, never unposted
+  const n=commPaid.filter(e=>e.month===M&&isTyped(e)).length;
+  if(!n){alert('Nothing posted for '+M+'.');return;}
+  // Later months already posted depend on this month's payouts for their top-up calc.
+  const later=[...new Set(commPaid.filter(e=>e.month>M&&isTyped(e)).map(e=>e.month))].sort();
+  let msg=`Unpost ${M}? This deletes the ${n} ledger row(s) for ${M}.`;
+  if(later.length){
+    msg=`⚠ WARNING — ${later.length} LATER month(s) are already posted: ${later.join(', ')}.\n\n`
+      +`Those months' payouts were calculated as top-ups against what ${M} already paid. If you unpost ${M}, re-post the later month(s) afterwards or their incremental amounts will be wrong.\n\n`
+      +`Delete the ${n} ledger row(s) for ${M} anyway?`;
+  }
+  if(!confirm(msg))return;
+  commPaid=commPaid.filter(e=>e.month!==M||!isTyped(e));           // keep blank-type paid-out exclusions
+  renderInputs();renderCommission();
+  setSyncStatus('loading','Saving ledger…');
+  try{await gsSet('commPaid',commPaid);setSyncStatus('ok',`Unposted ${M} ✓ `+new Date().toLocaleTimeString());}
+  catch(e){setSyncStatus('err','Save failed — check connection');}
+}
 function fmtPct01(v){return (v*100).toFixed(1)+'%';}
 function flagBadges(flags){
   return flags.map(f=>{
@@ -3301,13 +3716,20 @@ function flagBadges(flags){
     return '';
   }).join(' ');
 }
-function renderStreamSection(rows,secTitle,keyPfx){
-  if(!rows.length)return `<div class="fn" style="padding:8px 0">No ${secTitle.toLowerCase()} payouts this month.</div>`;
+function renderStreamSection(rows,secTitle,keyPfx,reminders){
+  const rem=reminders||{};
   const byP={};rows.forEach(r=>{const k=r.person.id+'::'+r.person.name;(byP[k]=byP[k]||[]).push(r);});
+  const remKeys=Object.keys(rem);
+  if(!rows.length&&!remKeys.length)return `<div class="fn" style="padding:8px 0">No ${secTitle.toLowerCase()} payouts this month.</div>`;
+  // Amber, always-visible note rows listing a person's current-month excluded SIs.
+  const exceptRows=pk=>{
+    const list=rem[pk];if(!list||!list.length)return '';
+    return list.map(x=>`<tr class="crow-exempt"><td class="lft" colspan="10" style="padding-left:2.2rem;font-size:11px;color:#8A5A00;background:#FEF9EE">⚠ Excluded (Part 3): SI <span class="mono">${esc(x.si)}</span> · SO <span class="mono">${esc(x.so)}</span> — ${esc(x.reason||'no reason given')}</td></tr>`).join('');
+  };
   let html='',gi=0;
-  Object.values(byP).sort((a,b)=>{
-    const s=arr=>arr.reduce((x,r)=>x+r.pay,0);return s(b)-s(a);
-  }).forEach(prs=>{
+  const rendered=new Set();
+  Object.entries(byP).sort((a,b)=>{const s=arr=>arr.reduce((x,r)=>x+r.pay,0);return s(b[1])-s(a[1]);}).forEach(([pk,prs])=>{
+    rendered.add(pk);
     const p=prs[0].person;const sub=Math.round(prs.reduce((s,r)=>s+r.pay,0));
     const k=keyPfx+(gi++);
     const det=prs.map(r=>{
@@ -3326,7 +3748,13 @@ function renderStreamSection(rows,secTitle,keyPfx){
         <td class="lft">${flagBadges(r.flags)}</td></tr>`;
     }).join('');
     html+=`<tr><td class="lft" colspan="8"><span class="exp-toggle" onclick="toggleSpDetail('${k}')">▸ ${prs.length} invoice(s)</span> <span style="font-size:10px;color:#bbb">${esc(p.id)}</span> ${esc(p.name)}${p.inRoster?'':' <span class="badge amber" style="font-size:10px">not in roster</span>'} <span style="color:#bbb;font-size:11px">· ${esc(p.branch)}</span></td>
-      <td style="font-weight:700${sub<0?';color:#A32D2D':''}">$${fmtInt(sub)}</td><td></td></tr>${det}`;
+      <td style="font-weight:700${sub<0?';color:#A32D2D':''}">$${fmtInt(sub)}</td><td></td></tr>${exceptRows(pk)}${det}`;
+  });
+  // Salespeople whose only current-month activity here was an excluded SI (no payout row).
+  remKeys.filter(pk=>!rendered.has(pk)).forEach(pk=>{
+    const x=rem[pk][0];
+    html+=`<tr><td class="lft" colspan="8"><span style="font-size:10px;color:#bbb">${esc(x.id)}</span> ${esc(x.name)}${x.inRoster?'':' <span class="badge amber" style="font-size:10px">not in roster</span>'} <span style="color:#bbb;font-size:11px">· ${esc(x.branch||'—')}</span></td>
+      <td style="color:#bbb">—</td><td></td></tr>${exceptRows(pk)}`;
   });
   const tot=Math.round(rows.reduce((s,r)=>s+r.pay,0));
   return `<div style="overflow-x:auto"><table class="ctable" style="white-space:nowrap"><thead><tr>
@@ -3566,6 +3994,7 @@ async function commSummaryPNG(M,s){
 
 function renderCommission(){
   renderSPRule();renderBMRule();renderComRule();renderInputs();
+  updateUnpostBtn();
   const racEl=document.getElementById('comm-result-rac'),comEl=document.getElementById('comm-result-com'),totEl=document.getElementById('comm-totals');
   if(!racEl)return;
   if(!siRows){
@@ -3580,7 +4009,8 @@ function renderCommission(){
     racEl.innerHTML=`<div class="empty">⚠️ No roster found for ${M} (nor the previous month) — set it up in Target Setup first.</div>`;
     comEl.innerHTML='';totEl.innerHTML='';return;
   }
-  const {rows,warnings}=commEngine(M);
+  const {rows,warnings,exemptRem}=commEngine(M);
+  const remFor=flag=>{const o={};Object.entries(exemptRem||{}).forEach(([pk,list])=>{const f=list.filter(x=>x[flag]);if(f.length)o[pk]=f;});return o;};
   const pick=t=>rows.filter(r=>r.type===t);
   const sum=arr=>Math.round(arr.reduce((s,r)=>s+r.pay,0));
   const racTot=sum(pick('RAC-SP'))+sum(pick('RAC-BM'));
@@ -3592,14 +4022,14 @@ function renderCommission(){
     <div class="card-sub">Per invoice · rate locked to invoice month · payout = full × collection% − paid before (earlier months) · over-paid floored to 0 · person subtotals rounded</div></div></div>
     ${warnHtml}
     <div style="font-size:12px;font-weight:600;color:#555;margin:8px 0 6px">Salesperson (per-set)</div>
-    ${renderStreamSection(pick('RAC-SP'),'RAC Salesperson','ra')}
+    ${renderStreamSection(pick('RAC-SP'),'RAC Salesperson','ra',remFor('rac'))}
     <div style="font-size:12px;font-weight:600;color:#555;margin:14px 0 6px">BM (tier × invoice RAC net)</div>
     ${renderStreamSection(pick('RAC-BM'),'RAC BM','rb')}`;
 
   comEl.innerHTML=`<div class="card-head"><div><div class="card-title">L&CAC Commission — ${M}</div>
     <div class="card-sub">Per invoice · (MXL+MXC amt − fee alloc) × tier rate · salesperson = personal Achv%, BM = unit Achv% (group = department when a branch has groups) · rate column by branch business group</div></div></div>
     <div style="font-size:12px;font-weight:600;color:#555;margin:8px 0 6px">Salesperson (personal tier)</div>
-    ${renderStreamSection(pick('COM-SP'),'L&CAC Salesperson','ca')}
+    ${renderStreamSection(pick('COM-SP'),'L&CAC Salesperson','ca',remFor('lcac'))}
     <div style="font-size:12px;font-weight:600;color:#555;margin:14px 0 6px">BM (unit tier)</div>
     ${renderStreamSection(pick('COM-BM'),'L&CAC BM','cb')}`;
 }
