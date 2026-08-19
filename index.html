@@ -420,6 +420,15 @@ tr.drag-over td{border-top:2px solid #378ADD}
     <div class="comm-card-bd" id="bm-rule-body"></div>
   </div>
 
+  <div class="comm-card collapsed" id="cc-bm0">
+    <div class="comm-card-hd" onclick="toggleCommCard('cc-bm0')">
+      <span class="cchev">▼</span><span class="cct">RAC Commission Rule — BM (target=0)</span>
+      <span id="bm0-mode-badge" class="comm-badge-ro">Read-only</span>
+      <button class="btn sm" id="bm0-edit-btn" onclick="event.stopPropagation();toggleBM0Edit()">✏️ Edit</button>
+    </div>
+    <div class="comm-card-bd" id="bm0-rule-body"></div>
+  </div>
+
   <div class="card" id="comm-result-rac"></div>
   </div><!-- /cpane-rac -->
 
@@ -673,6 +682,7 @@ async function loadFromCloud(){
     if(data.exclusions && Array.isArray(data.exclusions)) cloudExclusions = data.exclusions;
     if(data.commRuleSP && Array.isArray(data.commRuleSP) && data.commRuleSP.length) commRuleSP = data.commRuleSP;
     if(data.commRuleBM && Array.isArray(data.commRuleBM) && data.commRuleBM.length) commRuleBM = data.commRuleBM;
+    if(data.commRuleBM0 && typeof data.commRuleBM0==='object' && typeof data.commRuleBM0.rate==='number') commRuleBM0 = data.commRuleBM0;
     if(data.commRuleCom && Array.isArray(data.commRuleCom) && data.commRuleCom.length) commRuleCom = data.commRuleCom;
     if(data.soDenoms && typeof data.soDenoms === 'object') cloudSoDenoms = data.soDenoms;
     if(data.commBrokerage && Array.isArray(data.commBrokerage)) commBrokerage = data.commBrokerage;
@@ -2650,7 +2660,9 @@ const DEF_COMM_BM=[
 ];
 let commRuleSP=DEF_COMM_SP.map(r=>({...r}));
 let commRuleBM=DEF_COMM_BM.map(r=>({...r}));
-let spEdit=false, bmEdit=false;
+const DEF_COMM_BM0_RATE=0.004;                  // BM whose unit has NO RAC target: flat rate
+let commRuleBM0={rate:DEF_COMM_BM0_RATE};       // single-value rule, cloud-persisted
+let spEdit=false, bmEdit=false, bm0Edit=false;
 
 function populateCommMonths(){
   const sel=document.getElementById('comm-month');
@@ -2735,6 +2747,33 @@ async function toggleBMEdit(){
   bmEdit=false;renderBMRule();renderCommission();
   setSyncStatus('loading','Saving commission rules…');
   try{await gsSet('commRuleBM',commRuleBM);setSyncStatus('ok','Rules saved ✓ '+new Date().toLocaleTimeString());}
+  catch(e){setSyncStatus('err','Save failed — check connection');}
+}
+
+// ── Rule table: BM (target=0) — single flat rate ──────────────
+function renderBM0Rule(){
+  const el=document.getElementById('bm0-rule-body');if(!el)return;
+  document.getElementById('bm0-mode-badge').className=bm0Edit?'comm-badge-ed':'comm-badge-ro';
+  document.getElementById('bm0-mode-badge').textContent=bm0Edit?'Editing':'Read-only';
+  document.getElementById('bm0-edit-btn').innerHTML=bm0Edit?'💾 Save to cloud':'✏️ Edit';
+  const rateCell=bm0Edit
+    ?`<input class="ri-c bm0-in" type="number" step="0.1" data-f="rate" value="${(commRuleBM0.rate*100).toFixed(4)*1}">`
+    :`${(commRuleBM0.rate*100).toFixed(1)}%`;
+  el.innerHTML=`<div style="overflow-x:auto;margin-top:12px"><table class="ctable" style="max-width:520px">
+    <thead><tr><th style="width:220px">Achievement basis</th><th style="width:140px">BM0 Commission Rate</th></tr></thead>
+    <tbody><tr><td class="lft">Flat (no tier · unit has no RAC target)</td><td>${rateCell}</td></tr></tbody></table></div>
+    <div class="fn" style="margin-top:8px">Applies to a unit's 👑 manager when the unit (dept/group) has <b>no RAC qty target</b>. Commission = invoice RAC net sales (excl. tax, MXN, brokerage fee deducted) × this flat rate, by invoice month. No achievement tier. Value in the editor is a percentage.</div>`;
+}
+function collectBM0Inputs(){
+  const inp=document.querySelector('#bm0-rule-body .bm0-in');
+  if(inp)commRuleBM0.rate=(parseFloat(inp.value)||0)/100;
+}
+async function toggleBM0Edit(){
+  if(!bm0Edit){bm0Edit=true;renderBM0Rule();return;}
+  collectBM0Inputs();
+  bm0Edit=false;renderBM0Rule();renderCommission();
+  setSyncStatus('loading','Saving commission rules…');
+  try{await gsSet('commRuleBM0',commRuleBM0);setSyncStatus('ok','Rules saved ✓ '+new Date().toLocaleTimeString());}
   catch(e){setSyncStatus('err','Save failed — check connection');}
 }
 
@@ -2949,7 +2988,7 @@ const DEF_COMM_COM=[
 ];
 let commRuleCom=DEF_COMM_COM.map(r=>({...r}));
 
-const STREAM_LABEL={ 'RAC-SP':'RAC · Salesperson','RAC-BM':'RAC · BM','COM-SP':'L&CAC · Salesperson','COM-BM':'L&CAC · BM' };
+const STREAM_LABEL={ 'RAC-SP':'RAC · Salesperson','RAC-BM':'RAC · BM','RAC-BM0':'RAC · BM (no target)','COM-SP':'L&CAC · Salesperson','COM-BM':'L&CAC · BM' };
 
 // ── SO (Sales Order Report) upload → 3-line denominators ─────
 // Reads the "Detail Sales Order" sheet, sums Final Sub Total Without
@@ -3074,6 +3113,25 @@ function racBmTier(cache,m,bn,ownerId){
   const managers=unit.filter(p=>p.isManager);              // group lead(s) = unit's BM
   return {ratio,tier,rate,qty,tgt,managers,gkey};
 }
+// RAC-BM0: the unit (branch/group) of `ownerId` has NO RAC qty target
+// (dept/group total = 0; managers themselves aren't assigned targets).
+// Its 👑 still earns a flat rate (commRuleBM0.rate) of invoice RAC net
+// (fee deducted). Returns null when the unit DOES have a target
+// (→ normal RAC-BM) or has no 👑. Mirrors racBmTier's group resolution.
+function racBmZeroTier(cache,m,bn,ownerId){
+  const roster=cache.rosterOf(m);if(!roster)return null;
+  const b=roster.find(x=>x.branch===bn);if(!b)return null;
+  const grouped=b.people.some(p=>(p.group||'').trim());
+  const gkey=grouped?groupKeyOf(cache,m,bn,ownerId):'';
+  if(grouped&&!gkey)return null;                            // owner not in any group
+  const unit=unitPeople(b,gkey);
+  const keys=cache.schemaKeys(m).rac;
+  let tgt=0;unit.forEach(p=>tgt+=cache.tgt(m,bn,p.id,keys));
+  if(tgt>0)return null;                                     // has a target → normal RAC-BM handles it
+  const managers=unit.filter(p=>p.isManager);              // group lead(s) = unit's BM
+  if(!managers.length)return null;                          // no 👑 → nobody to pay
+  return {rate:commRuleBM0.rate,managers,gkey};
+}
 // Commercial tier. scope 'person' → own amt÷own target.
 // scope 'dept' → the UNIT (group of `ownerId`, or whole branch) amt÷target.
 function comTier(cache,m,bn,id,scope,ownerId){
@@ -3188,10 +3246,13 @@ function commEngine(M){
     let racGross=0;Object.keys(iv.racSets).forEach(c=>{const rr=spRate[c];if(rr)racGross+=iv.racSets[c]*rr.rate;});
     const feeR=alloc(iv.racAmt);
     const racBm=iv.racAmt>0||racGross>0 ? (own.branch?racBmTier(cache,iv.m,own.branch,own.p.id):null) : null;
-    const isRacBM=!!(racBm&&racBm.managers.some(p=>p.id===own.p.id));
+    // RAC-BM0: only when the unit has NO RAC target (racBm is null). Flat 0.4%.
+    const racBm0=(!racBm && (iv.racAmt>0||racGross>0) && own.branch) ? racBmZeroTier(cache,iv.m,own.branch,own.p.id) : null;
+    const isRacBM=!!(racBm&&racBm.managers.some(p=>p.id===own.p.id))
+               || !!(racBm0&&racBm0.managers.some(p=>p.id===own.p.id));
     if(racGross>0||(fee&&iv.racAmt>0)){
       if(feeR===null&&iv.racAmt>0){warnings.push(`SO ${iv.so}: brokerage fee set but SO 3-line total missing — upload the Sales Order Report (SI ${iv.si} skipped in RAC)`);}
-      else if(!isRacBM){                                              // A · RAC salesperson (BM excluded)
+      else if(!isRacBM){                                              // A · RAC salesperson (BM & no-target BM excluded)
         const full=racGross;  // RAC-SP: no brokerage deduction for salesperson
         push('RAC-SP',{id:own.p.id,name:own.p.name,branch:own.branch||iv.dept||'—',inRoster:own.inRoster},iv,racGross,0,null,full,pct,paid['RAC-SP::'+iv.si]||0,[]);
       }
@@ -3201,6 +3262,13 @@ function commEngine(M){
       else racBm.managers.forEach(mg=>{
         const full=(iv.racAmt-(feeR||0))*racBm.rate;
         push('RAC-BM',{id:mg.id,name:mg.name,branch:own.branch,inRoster:true},iv,iv.racAmt,feeR||0,{ratio:racBm.ratio,rate:racBm.rate,label:tierLabel(racBm.tier)},full,pct,paid['RAC-BM::'+iv.si]||0,racBm.managers.length>1?['MULTI-BM']:[]);
+      });
+    }
+    if(racBm0&&iv.racAmt>0){                                          // B′ · RAC BM (no target) — flat 0.4%
+      if(feeR===null){warnings.push(`SO ${iv.so}: fee unallocatable (missing SO total) — SI ${iv.si} skipped in RAC-BM (no target)`);}
+      else racBm0.managers.forEach(mg=>{
+        const full=(iv.racAmt-(feeR||0))*racBm0.rate;
+        push('RAC-BM0',{id:mg.id,name:mg.name,branch:own.branch,inRoster:true},iv,iv.racAmt,feeR||0,{ratio:null,rate:racBm0.rate,label:'no target'},full,pct,paid['RAC-BM0::'+iv.si]||0,racBm0.managers.length>1?['MULTI-BM']:[]);
       });
     }
 
@@ -3260,6 +3328,13 @@ function commEngine(M){
         const full=(mxn-cnFee)*racBm.rate;
         push('RAC-BM',{id:mg.id,name:mg.name,branch:cp.empBranch,inRoster:true},iv,mxn,cnFee,{ratio:racBm.ratio,rate:racBm.rate,label:tierLabel(racBm.tier)},full,cnPct,paid['RAC-BM::'+iv.si]||0,['CN']);
       });
+      else{                                                          // no unit RAC target → flat 0.4% RAC-BM0
+        const racBm0=racBmZeroTier(cache,cp.month,cp.empBranch,cp.empId);
+        if(racBm0)racBm0.managers.forEach(mg=>{
+          const full=(mxn-cnFee)*racBm0.rate;
+          push('RAC-BM0',{id:mg.id,name:mg.name,branch:cp.empBranch,inRoster:true},iv,mxn,cnFee,{ratio:null,rate:racBm0.rate,label:'no target'},full,cnPct,paid['RAC-BM0::'+iv.si]||0,['CN']);
+        });
+      }
     }else if(cp.line==='LAC'||cp.line==='CAC'){
       const comBm=comBmQualifies(cache,cp.month,cp.empBranch,cp.empId);
       const isComBM=!!(comBm&&person&&comBm.managers.some(p=>p.id===person.id));
@@ -3571,7 +3646,7 @@ function renderInputs(){
       return `<tr><td><input class="ri-c inp-paid" style="width:76px" data-i="${i}" data-f="month" value="${esc(r.month||'')}" placeholder="YYYY-MM"></td>
         <td class="lft"><input class="ri-c wide inp-paid" data-i="${i}" data-f="so" value="${esc(r.so||'')}" style="font-family:ui-monospace,Menlo,monospace"></td>
         <td class="lft"><input class="ri-c wide inp-paid" data-i="${i}" data-f="si" value="${esc(r.si||'')}" style="font-family:ui-monospace,Menlo,monospace"></td>
-        <td><select class="inp-paid" data-i="${i}" data-f="type" style="font-size:11px;padding:3px">${['RAC-SP','RAC-BM','COM-SP','COM-BM'].map(t=>`<option${r.type===t?' selected':''}>${t}</option>`).join('')}</select></td>
+        <td><select class="inp-paid" data-i="${i}" data-f="type" style="font-size:11px;padding:3px">${['RAC-SP','RAC-BM','RAC-BM0','COM-SP','COM-BM'].map(t=>`<option${r.type===t?' selected':''}>${t}</option>`).join('')}</select></td>
         <td><input class="ri-c inp-paid" type="text" inputmode="decimal" data-i="${i}" data-f="amount" value="${r.amount??''}"></td>
         <td class="lft"><input class="ri-c wide inp-paid" data-i="${i}" data-f="name" value="${esc(r.name||'')}"></td>
         <td class="lft"><input class="ri-c wide inp-paid" data-i="${i}" data-f="note" value="${esc(r.note||'')}" placeholder="—"></td>
@@ -3733,7 +3808,7 @@ function renderStreamSection(rows,secTitle,keyPfx,reminders){
     const p=prs[0].person;const sub=Math.round(prs.reduce((s,r)=>s+r.pay,0));
     const k=keyPfx+(gi++);
     const det=prs.map(r=>{
-      const tier=r.tierInfo?(r.tierInfo.pending?'<span style="color:#B45309">?</span>':(r.tierInfo.ratio!=null?`${fmtPct01(r.tierInfo.ratio)} → ${(r.tierInfo.rate*100).toFixed(2)*1}%`:'—')):'—';
+      const tier=r.tierInfo?(r.tierInfo.pending?'<span style="color:#B45309">?</span>':(r.tierInfo.ratio!=null?`${fmtPct01(r.tierInfo.ratio)} → ${(r.tierInfo.rate*100).toFixed(2)*1}%`:(r.tierInfo.rate!=null?`${esc(r.tierInfo.label||'flat')} → ${(r.tierInfo.rate*100).toFixed(2)*1}%`:'—'))):'—';
       const neg=r.full<0?' style="color:#A32D2D;font-weight:600"':'';
       return `<tr class="crow-detail spd-${k}" style="display:none">
         <td class="lft" style="padding-left:2.2rem"><span style="font-size:10px;color:#bbb">${esc(r.invMonth)}</span> <span class="mono">${esc(r.si)}</span></td>
@@ -3993,7 +4068,7 @@ async function commSummaryPNG(M,s){
 }
 
 function renderCommission(){
-  renderSPRule();renderBMRule();renderComRule();renderInputs();
+  renderSPRule();renderBMRule();renderBM0Rule();renderComRule();renderInputs();
   updateUnpostBtn();
   const racEl=document.getElementById('comm-result-rac'),comEl=document.getElementById('comm-result-com'),totEl=document.getElementById('comm-totals');
   if(!racEl)return;
@@ -4013,7 +4088,7 @@ function renderCommission(){
   const remFor=flag=>{const o={};Object.entries(exemptRem||{}).forEach(([pk,list])=>{const f=list.filter(x=>x[flag]);if(f.length)o[pk]=f;});return o;};
   const pick=t=>rows.filter(r=>r.type===t);
   const sum=arr=>Math.round(arr.reduce((s,r)=>s+r.pay,0));
-  const racTot=sum(pick('RAC-SP'))+sum(pick('RAC-BM'));
+  const racTot=sum(pick('RAC-SP'))+sum(pick('RAC-BM'))+sum(pick('RAC-BM0'));
   const comTot=sum(pick('COM-SP'))+sum(pick('COM-BM'));
   totEl.innerHTML=`<span>RAC: <strong>$${fmtInt(racTot)}</strong></span><span>L&CAC: <strong>$${fmtInt(comTot)}</strong></span><span style="color:#111">Total: <strong>$${fmtInt(racTot+comTot)}</strong></span>`;
   const warnHtml=warnings.length?`<div style="margin:8px 0;padding:8px 12px;background:#FEF9EE;border:1px solid #E9B949;border-radius:8px;font-size:11.5px;color:#8A5A00">${[...new Set(warnings)].map(esc).join('<br>')}</div>`:'';
@@ -4024,7 +4099,9 @@ function renderCommission(){
     <div style="font-size:12px;font-weight:600;color:#555;margin:8px 0 6px">Salesperson (per-set)</div>
     ${renderStreamSection(pick('RAC-SP'),'RAC Salesperson','ra',remFor('rac'))}
     <div style="font-size:12px;font-weight:600;color:#555;margin:14px 0 6px">BM (tier × invoice RAC net)</div>
-    ${renderStreamSection(pick('RAC-BM'),'RAC BM','rb')}`;
+    ${renderStreamSection(pick('RAC-BM'),'RAC BM','rb')}${pick('RAC-BM0').length?`
+    <div style="font-size:12px;font-weight:600;color:#555;margin:14px 0 6px">BM · no RAC target (flat 0.4% × invoice RAC net)</div>
+    ${renderStreamSection(pick('RAC-BM0'),'RAC BM (no target)','rb0')}`:''}`;
 
   comEl.innerHTML=`<div class="card-head"><div><div class="card-title">L&CAC Commission — ${M}</div>
     <div class="card-sub">Per invoice · (MXL+MXC amt − fee alloc) × tier rate · salesperson = personal Achv%, BM = unit Achv% (group = department when a branch has groups) · rate column by branch business group</div></div></div>
