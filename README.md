@@ -18,7 +18,7 @@ A **left navigation** splits the app into two areas, because the two run on diff
 | **Web app** | https://zoezhao273.github.io/greemexico-salesreport2/gree_sales_report2.html |
 | **GitHub repository** | https://github.com/zoezhao273/greemexico-salesreport2 |
 
-> Uploading a new HTML file to the repository does not change any of these links.
+> The cloud backend (Google Sheets via an Apps Script Web App) endpoint is configured inside the HTML (`GS_URL`) and is intentionally not reproduced here. Uploading a new HTML file to the repository does not change any of these links.
 
 ---
 
@@ -149,7 +149,8 @@ Records domestic China delivery deals **not present in the ERP or SI data**. Ent
 - **Unbilled rows** (exclude-tax amount is blank or 0) contribute neither amount nor quantity.
 - **Counting**: each project counts as **1 order and 1 customer** (deduplicated by project name). China projects are inherently valid orders and are not affected by any filters.
 - **Default mode**: read-only (MXN). A toggle at the top switches to Edit mode (original currency).
-- Data is stored under the `chinaProjects` key in Google Sheets. Click **☁️ Save to Cloud** to persist. The module has its own **🖼 Export PNG** (off-screen full-width table).
+- **Shipping Progress**: the last column is a fixed 3-option status (`Not Shipped` / `Partially Shipped` / `Fully Shipped`), shared with Part 2's Shipping Progress (stored in the row's `progress` field; any legacy free-text value is preserved as a selectable option). A project that was not fully collected from the start is auto-pulled into the commission **Collection & Shipping** table, where its Collection % and Shipping Progress are editable and **sync both ways** with this module.
+- Data is stored under the `chinaProjects` key in the cloud backend. Click **☁️ Save to Cloud** to persist. The module has its own **🖼 Export PNG** (off-screen full-width table).
 
 ---
 
@@ -265,9 +266,10 @@ A separate top-level view that computes monthly commission from the **same SI da
 
 ### Core model ⭐
 - **Unit of calculation = one SI invoice.** A single SO can be invoiced across several months; each invoice is handled on its own.
-- **Tier rate is locked to the invoice's own month.** A補发 (top-up) in a later month still uses the original month's achievement tier. This is achieved by recomputing from history, so the SI file must keep all historical month sheets.
-- **Incremental payout against collection progress**: `payout this month = full commission × current collection% − amount already paid in earlier months` (from the Commission-paid ledger). As collection rises, the balance is topped up; once fully collected and fully paid, the invoice disappears from the tables.
-- **Rounding**: each invoice keeps decimals; **per-person monthly totals are rounded to whole pesos**.
+- **Tier rate is locked to the invoice's own month.** A top-up in a later month still uses the original month's achievement tier. The first time an invoice is posted, its **100%-collection commission (`Full`)** is frozen into the Commission-paid ledger; from then on `Full` is the authoritative base and is reused unchanged in later months.
+- **Incremental payout against collection progress**: `payout this month = Full × current collection% − amount already paid in earlier months` (from the Commission-paid ledger). As collection rises, the balance is topped up; once fully collected and fully paid, the invoice disappears from the tables.
+- **Cross-month top-ups do not require the SI file to keep history ⭐**: the engine reads from two sources and de-duplicates by `(Type, SI)` — invoices still in the uploaded file use the file path (with the frozen `Full` applied), and any posted `(Type, SI)` **no longer present in the file** is paid straight from the ledger (frozen `Full` × current collection% − already-paid). So once a month is posted, later top-ups are correct even if a subsequent SI upload omits earlier months. Owner/branch for a vanished-invoice top-up come from the frozen ledger row.
+- **Rounding**: `Full` and `SI Base` are stored at full real precision (float-noise stripped, not truncated to cents); each month's payout is stored to the cent; per-person monthly display totals are rounded to whole pesos.
 
 ### Four commission streams
 A single invoice can generate up to four independent streams, each tracked and paid separately:
@@ -279,14 +281,63 @@ A single invoice can generate up to four independent streams, each tracked and p
 | **L&CAC-SP** | Salesperson | MXL+MXC | **personal** amount ÷ personal target | L&CAC tier table |
 | **L&CAC-BM** | BM (branch/group lead) | MXL+MXC | **unit** amount ÷ unit target | L&CAC tier table |
 
-A person who is an active BM of their unit is excluded from the corresponding salesperson stream. The Commission-paid ledger carries a **Type** column to keep the four streams separate (essential for correct top-ups).
+A person who is an active BM of their unit is excluded from the corresponding salesperson stream. The Commission-paid ledger carries a **Type** column to keep the four streams separate (essential for correct top-ups); a special `Paid` type marks a whole-SI settlement (see Part 4 below).
 
 ### Formulas
-- **Brokerage allocation** (shared by all streams): `allocated fee = SO fee × (invoice's product-line amount ÷ SO three-line total)`, where the three-line total is the RAC+LAC+CAC amount from the Sales Order Report `soDenoms`. RAC streams use the invoice RAC amount as numerator; L&CAC streams use the invoice MXL+MXC amount.
-- **RAC salesperson full** = Σ(per-item qty × per-set rate) − allocated fee.
-- **RAC BM full** = (invoice RAC amount − allocated fee) × BM tier rate.
-- **L&CAC full** = (invoice MXL+MXC amount − allocated fee) × tier rate.
-- **This-month payout** = full × current collection% − paid-before.
+**Brokerage-fee allocation** (RAC-BM / L&CAC-SP / L&CAC-BM only):
+`allocated fee = SO brokerage fee × (invoice product-line amount ÷ SO three-line total)`
+The three-line total (RAC + LAC + CAC) comes from the uploaded Sales Order Report (`soDenoms`). RAC streams use the invoice RAC amount as numerator; L&CAC streams use the invoice MXL+MXC amount. **RAC-SP does not deduct any brokerage fee.**
+
+**Calculation granularity = one SI invoice.** All four streams compute per-invoice; results are aggregated to a per-person total at the end.
+
+---
+
+#### A · RAC-SP (Residential · Salesperson)
+1. **Gross** = Σ (item qty × per-set rate) — from `commRuleSP`
+2. **Full** = Gross *(no brokerage deduction)*
+3. **Collection %** = `commCollection[SO].pct` (default 100 % if not entered)
+4. **Paid-before** = Σ `commPaid` rows where `type = RAC-SP`, `SI = this invoice`, `month < M`
+5. **This-invoice pay** = Full × Collection% − Paid-before (floored to 0 if negative)
+6. **Person total** = Σ this-invoice pay across all invoices → **rounded to whole pesos**
+
+#### B · RAC-BM (Residential · Branch Manager)
+1. **Allocated fee** = SO brokerage fee × (invoice RAC amount ÷ SO three-line total)
+2. **Net base** = invoice RAC amount excl. tax − allocated fee
+3. **Tier rate** = look up branch RAC achievement rate in `commRuleBM` — **locked to the invoice's own month**
+4. **Full** = Net base × Tier rate
+5. **Collection %** = `commCollection[SO].pct` (default 100 %)
+6. **Paid-before** = Σ `commPaid` rows where `type = RAC-BM`, `SI = this invoice`, `month < M`
+7. **This-invoice pay** = Full × Collection% − Paid-before (floored to 0 if negative)
+8. **Person total** = Σ this-invoice pay across **all invoices belonging to the BM's unit** → **rounded to whole pesos** *(critical: the BM's payout is the rounded sum of all per-invoice pays, not a per-invoice rounded figure)*
+
+#### C · L&CAC-SP (Commercial · Salesperson)
+1. **Allocated fee** = SO brokerage fee × (invoice MXL+MXC amount ÷ SO three-line total)
+2. **Net base** = invoice MXL+MXC amount excl. tax − allocated fee
+3. **Tier rate** = look up **personal** L&CAC achievement rate in `commRuleCom` (rate column by branch business group) — **locked to the invoice's own month**
+4. **Full** = Net base × Tier rate
+5. **Collection %** = `commCollection[SO].pct` (default 100 %)
+6. **Paid-before** = Σ `commPaid` rows where `type = COM-SP`, `SI = this invoice`, `month < M`
+7. **This-invoice pay** = Full × Collection% − Paid-before (floored to 0 if negative)
+8. **Person total** = Σ this-invoice pay across all invoices → **rounded to whole pesos**
+
+#### D · L&CAC-BM (Commercial · Branch Manager)
+1. **Allocated fee** = SO brokerage fee × (invoice MXL+MXC amount ÷ SO three-line total)
+2. **Net base** = invoice MXL+MXC amount excl. tax − allocated fee
+3. **Tier rate** = look up **unit (branch/group)** L&CAC achievement rate in `commRuleCom` — **locked to the invoice's own month**
+4. **Full** = Net base × Tier rate
+5. **Collection %** = `commCollection[SO].pct` (default 100 %)
+6. **Paid-before** = Σ `commPaid` rows where `type = COM-BM`, `SI = this invoice`, `month < M`
+7. **This-invoice pay** = Full × Collection% − Paid-before (floored to 0 if negative)
+8. **Person total** = Σ this-invoice pay across **all invoices belonging to the BM's unit** → **rounded to whole pesos** *(critical: same aggregation rule as RAC-BM)*
+
+---
+
+| | Brokerage deducted | Achievement basis | Rate table |
+|---|---|---|---|
+| **RAC-SP** | ❌ No | Fixed per-set (no tier) | `commRuleSP` |
+| **RAC-BM** | ✅ Yes | Branch RAC achievement rate | `commRuleBM` |
+| **L&CAC-SP** | ✅ Yes | Personal L&CAC achievement rate | `commRuleCom` |
+| **L&CAC-BM** | ✅ Yes | Unit L&CAC achievement rate | `commRuleCom` |
 
 ### "Unit" = branch, or group when a branch has groups ⭐
 When a branch has any grouped person (the Target Setup **Group** field), **each group behaves as its own department**: the group's 👑 lead is that group's BM, achievement is measured over the group's members only, and only that group's invoices feed its BM stream. A branch with no groups uses whole-branch scope. This applies to both RAC-BM and L&CAC-BM. (Mixed grouped/ungrouped within one branch does not occur.)
@@ -303,17 +354,19 @@ The RAC results card has two sections: **Salesperson (per-set)** and **BM (tier 
 - Results card has **Salesperson (personal tier)** and **BM (unit tier)** sections.
 
 ### Module 3 · Inputs (`commBrokerage` / `commCollection` / `commPaid`)
-One card, read-only with an Edit toggle, three sections:
+One card, read-only with an Edit toggle. In read-only mode the **SO rows within each of Parts 1-3 can be drag-reordered** by the ⠿ handle at the start of each row — the reordered array is saved to that section's own cloud key (`commBrokerage` / `commCollection` / `commExempt`).
+
+**Per-column filters (read-only view).** Every column header in all four Parts carries a ▾ funnel button. Clicking it opens an Excel-style checkbox list of that column's distinct values (with a search box + Select all / Clear); Apply keeps only the matching rows. Filters combine with **AND** across columns; a green banner shows *"showing X of Y"* with a **Clear filters** button, and the section count switches to `X / Y`. Filters are a pure **viewing aid** — they are not persisted, not shown in Edit mode, and never alter the data: rows are always rendered at their true array index and merely hidden with `display:none`, so drag-reorder indices and Edit-mode value collection are unaffected. Sections:
 1. **3rd Brokerage Fee** (expanded): `SO No.` → `3rd Brokerage fee (MXN, Excl. IVA)`. SOs not listed → fee 0.
-2. **Collection Progress** (expanded): `SO No.` → `Collection Progress (%)`. SOs not listed → 100%. Enter cumulative progress as of month-end.
+2. **Collection & Shipping** (expanded): `SO No.` → `Collection Progress (%)` → `Shipping Progress`. SOs not listed → 100% collection. Enter cumulative collection as of month-end. **Shipping Progress** is a fixed 3-option status (`Not Shipped` / `Partially Shipped` / `Fully Shipped`) — a label only; it does **not** affect any calculation. In the read-only working view, SOs at **100%** are moved into a collapsed **"✓ Fully collected · 100%"** group so the main list shows only still-open collections (purely visual — every row stays at its true array index, so the calculation and cross-month top-ups are unchanged). **China Projects** that were *not* fully collected from the start are auto-pulled into Part 2 and tagged `China Project`: their `Collection %` and `Shipping Progress` are editable here and **sync both ways** with the China Projects module (same `cloudChinaProjects` source, same shared `progress` field); at 100% they join the folded group. Projects that have always been 100% are never shown.
 3. **Exemption** (expanded) ⭐: `SO No.` → `Exemption Reason`. Listed SOs are dropped from **all** commission calculations (every stream, salesperson & BM) — e.g. loss-making orders with no margin to pay commission from. Applies to SI invoices and to China projects sharing the SO No. Stored under `commExempt`.
-4. **Commission-paid** (collapsed): the payout ledger — `Month`, `SO No.`, `SI No.`, `Type`, `Commission (MXN)`, `Salesperson Name`. Normally written by the Post button; editable for manual adjustments/exemptions. A month's calculation only treats **earlier-month** ledger rows as already-paid, so posting the current month does not change its own figures.
+4. **Commission-paid** (collapsed): the payout ledger — `Month`, `SO No.`, `SI No.`, `Type`, `SI Base`, `Full`, `Commission (MXN)`, `Paid%`, `Salesperson Name`, `Note`. Normally written by the Post button; editable for manual adjustments. Each posted row freezes **`SI Base`** (the SI's excl-tax amount for that stream's line), **`Full`** (the 100%-collection commission — the load-bearing base for later top-ups), the month's **`Commission`** payout and **`Paid%`** (this month's incremental percentage), plus the owner's employee ID/branch (used to re-attribute a top-up after the SI leaves the file). A month's calculation only treats **earlier-month** ledger rows as already-paid, so posting the current month does not change its own figures. Rows with **Type = `Paid`** are whole-SI settlements (paid in full, 100%): excluded from **all** streams (payout skipped, achievement unaffected), Type locked, never touched by Post/Unpost — set via the seed of pre-July 2026 paid-out SIs or manually via the Type dropdown → `Paid (settle · exclude)`.
 
 ### China Projects in commission ⭐
 Each China row joins as a virtual invoice with the row's own inputs: `Project` = both the SO No. and SI No. (ledger key); `3rd Commission` = brokerage fee; `Coll. Progress` = collection %; `SO Amt excl tax` = amount (× FE Rate → MXN). It feeds the RAC-BM / L&CAC-SP / L&CAC-BM streams (per the row's product line), scoped to the owner's unit.
 
 ### Detail columns
-Each detail row = one invoice × one stream: **Inv.Month · SI**, **SO**, **SI Base**, **Fee alloc**, **Achv% → Rate**, **Com Full**, **Coll%**, **Paid before**, **This month**, and a flags column.
+Each detail row = one invoice × one stream: **Inv.Month · SI**, **SO**, **SI Base**, **Fee alloc**, **Achv% → Rate**, **Com Full**, **Coll%**, **Paid before**, **This month**, and a flags column. **SI Base** is always the SI's own excl-tax amount for that stream's line (RAC amount for RAC streams, MXL+MXC for L&CAC) — including RAC-SP, where it is the invoice RAC amount rather than the per-set gross.
 
 ### Flags (floor-to-zero policy) ⭐
 Negative results are **never clawed back** — they floor to 0 and are flagged in amber:
@@ -322,9 +375,13 @@ Negative results are **never clawed back** — they floor to 0 and are flagged i
 - **PENDING …**: no target set (or salesperson not in roster) → tier undecidable, shown but not paid.
 - **⚠ shared branch**: the unit has more than one 👑 lead, so each lead receives a full unit commission — verify the roster.
 - **China Proj**: informational.
+- **↩ top-up**: a cross-month top-up paid from the frozen ledger because the SI is no longer in the uploaded SI file (the Part 4-only path).
 
 ### 📤 Post month to Commission-paid
-Computes the selected month and writes each stream's this-month payout into the ledger (keyed by Type + SI No.). Re-posting a month **replaces** that month's ledger rows (a confirmation warns if manual edits for that month would be lost).
+Computes the selected month and writes each stream's this-month payout into the ledger (keyed by Type + SI No.), freezing `SI Base`, `Full` (100%-collection commission), `Paid%`, and the owner's ID/branch on every row. Re-posting a month **replaces** that month's payout rows (a confirmation warns if manual edits for that month would be lost); `Paid` settlement rows are never touched. **Post each month before computing the next** — the next month reads earlier months' ledger rows to know what is already paid, so an un-posted month causes its invoices to be re-paid in full the following month.
+
+### ↩︎ Unpost this month
+Reverses a Post by deleting the selected month's rows from the ledger. The button only appears when the selected month actually has ledger rows. Because the ledger is cumulative — later months are paid as **top-ups against what earlier months already paid** — if any **later** month is already posted, the confirmation is a strong warning listing those months and advising you to re-post them afterwards (otherwise their incremental amounts will be wrong). With no later months posted, it is a plain confirm. The change is saved to the `commPaid` cloud key. Re-posting the same month achieves the same reset without deleting first.
 
 ### 📊 Export Excel (all + per-dept)
 Produces **one `.zip`** containing **1 + (n + 1)** workbooks *and* the same number of matching PNGs:
@@ -376,13 +433,13 @@ Data is stored in a sheet named `targets`. Each row is one key-value pair; the v
 | `commRuleCom` | `[{lo, hi, rac, cac}, ...]` (tier → RAC-led / CAC-led rate) |
 | `soDenoms` | `{"MTY-20260707-002": 131393, ...}` (SO → integer RAC+LAC+CAC total) |
 | `commBrokerage` | `[{so, fee}, ...]` (MXN, excl. IVA; missing SO → 0) |
-| `commCollection` | `[{so, pct}, ...]` (0–100; missing SO → 100) |
+| `commCollection` | `[{so, pct, ship}, ...]` (pct 0–100, missing SO → 100; ship = status label only) |
 | `commExempt` | `[{so, reason}, ...]` (SOs excluded from all commission) |
-| `commPaid` | `[{month, so, si, type, amount, name}, ...]` (`type` ∈ RAC-SP / RAC-BM / COM-SP / COM-BM) |
+| `commPaid` | `[{month, so, si, type, siBase, full, amount, paidPct, name, note, _empId, _branch}, ...]` — `type` ∈ RAC-SP / RAC-BM / COM-SP / COM-BM (payout rows) or `Paid` (whole-SI settlement, excluded from all streams). `full`/`siBase` kept at full precision; `amount` to the cent |
 | `exclusions` | `[{so, type, usage}, ...]` (only `so` affects calculations; `type` / `usage` are labels) |
 
 ### Read / write flow
-- **Read (page load):** GET request to the Apps Script URL; parses `rosters`, `targets`, `schemas`, `chinaProjects`, `exclusions`, and the commission keys (`commRuleSP`, `commRuleBM`, `commRuleCom`, `soDenoms`, `commBrokerage`, `commCollection`, `commExempt`, `commPaid`).
+- **Read (page load):** GET request to the cloud Web App endpoint (`GS_URL`, configured in the HTML); parses `rosters`, `targets`, `schemas`, `chinaProjects`, `exclusions`, and the commission keys (`commRuleSP`, `commRuleBM`, `commRuleCom`, `soDenoms`, `commBrokerage`, `commCollection`, `commExempt`, `commPaid`).
 - **Write (Save to Cloud):** POST each key in sequence using `no-cors` mode to avoid CORS preflight issues and URL length limits. Each area saves its own keys (Target Setup → roster/targets/schemas; commission rule cards → their rule key; Module 3 / Post → the input and ledger keys; SO upload → `soDenoms`).
 
 ### Apps Script code (generic key-value store)
