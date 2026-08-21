@@ -378,10 +378,10 @@ Negative results are **never clawed back** — they floor to 0 and are flagged i
 - **↩ top-up**: a cross-month top-up paid from the frozen ledger because the SI is no longer in the uploaded SI file (the Part 4-only path).
 
 ### 📤 Post month to Commission-paid
-Computes the selected month and writes each stream's this-month payout into the ledger (keyed by Type + SI No.), freezing `SI Base`, `Full` (100%-collection commission), `Paid%`, and the owner's ID/branch on every row. Re-posting a month **replaces** that month's payout rows (a confirmation warns if manual edits for that month would be lost); `Paid` settlement rows are never touched. **Post each month before computing the next** — the next month reads earlier months' ledger rows to know what is already paid, so an un-posted month causes its invoices to be re-paid in full the following month.
+Computes the selected month and writes each stream's this-month payout into the ledger (keyed by Type + SI No.), freezing `SI Base`, `Full` (100%-collection commission), `Paid%`, and the owner's ID/branch on every row. Re-posting a month **replaces** that month's payout rows (a confirmation warns if manual edits for that month would be lost); `Paid` settlement rows are never touched. **Post each month before computing the next** — the next month reads earlier months' ledger rows to know what is already paid, so an un-posted month causes its invoices to be re-paid in full the following month. The write targets only that month's `commPaid_YYYY-MM` shard and is **read back to confirm** before reporting `Ledger saved & verified ✓`.
 
 ### ↩︎ Unpost this month
-Reverses a Post by deleting the selected month's rows from the ledger. The button only appears when the selected month actually has ledger rows. Because the ledger is cumulative — later months are paid as **top-ups against what earlier months already paid** — if any **later** month is already posted, the confirmation is a strong warning listing those months and advising you to re-post them afterwards (otherwise their incremental amounts will be wrong). With no later months posted, it is a plain confirm. The change is saved to the `commPaid` cloud key. Re-posting the same month achieves the same reset without deleting first.
+Reverses a Post by deleting the selected month's rows from the ledger. The button only appears when the selected month actually has ledger rows. Because the ledger is cumulative — later months are paid as **top-ups against what earlier months already paid** — if any **later** month is already posted, the confirmation is a strong warning listing those months and advising you to re-post them afterwards (otherwise their incremental amounts will be wrong). With no later months posted, it is a plain confirm. The change is saved to that month's `commPaid_YYYY-MM` shard (written, then read back to confirm). Re-posting the same month achieves the same reset without deleting first.
 
 ### 📊 Export Excel (all + per-dept)
 Produces **one `.zip`** containing **1 + (n + 1)** workbooks *and* the same number of matching PNGs:
@@ -411,13 +411,15 @@ Each workbook has three sheets: **Summary** (per person: code, name, RAC (ref), 
 | 3rd Brokerage fees | Google Sheets | `commBrokerage` |
 | Collection progress | Google Sheets | `commCollection` |
 | Commission exemptions (SOs excluded from all commission) | Google Sheets | `commExempt` |
-| Commission-paid ledger | Google Sheets | `commPaid` |
+| Commission-paid ledger (payout + `Paid` settlement rows) | Google Sheets | **`commPaid_YYYY-MM`** (one cell per month) — legacy single-key `commPaid` is auto-migrated on first load and kept read-only as a fallback |
 | Column-width preferences | Browser localStorage | Local only, not synced |
 | SI / Customer / Collection Excel files | Not stored | Processed in memory on each upload |
 
 > **New cloud keys since the commission module** — `commRuleSP`, `commRuleBM`, `commRuleCom`, `soDenoms`, `commBrokerage`, `commCollection`, `commExempt`, `commPaid`. The Apps Script store below is generic (any key), so **no backend change is needed** unless the deployment enforces a key allow-list — in which case add these keys and re-deploy.
 
 > Legacy `roster` key compatibility: if the sheet has the old single-key `roster` but no `rosters`, it is automatically mapped to the current month on load.
+
+> **Commission-paid ledger is sharded per month** ⭐: it is stored as one key per month (`commPaid_2026-07`, `commPaid_2026-08`, …), not a single `commPaid` cell, because Google Sheets caps a single cell at **50,000 characters** — the whole-ledger-in-one-cell approach silently overflowed once enough months were posted (see Troubleshooting). On load the app **merges every `commPaid_YYYY-MM` cell** into one in-memory ledger; if it finds only the old single `commPaid` cell it **migrates** it into per-month cells automatically (leaving the old cell intact as a read-only fallback for any un-refreshed tab). Every ledger write is **read back from the cloud and verified** before it reports success.
 
 ### Google Sheets structure
 Data is stored in a sheet named `targets`. Each row is one key-value pair; the value is a JSON string:
@@ -435,12 +437,12 @@ Data is stored in a sheet named `targets`. Each row is one key-value pair; the v
 | `commBrokerage` | `[{so, fee}, ...]` (MXN, excl. IVA; missing SO → 0) |
 | `commCollection` | `[{so, pct, ship}, ...]` (pct 0–100, missing SO → 100; ship = status label only) |
 | `commExempt` | `[{so, reason}, ...]` (SOs excluded from all commission) |
-| `commPaid` | `[{month, so, si, type, siBase, full, amount, paidPct, name, note, _empId, _branch}, ...]` — `type` ∈ RAC-SP / RAC-BM / COM-SP / COM-BM (payout rows) or `Paid` (whole-SI settlement, excluded from all streams). `full`/`siBase` kept at full precision; `amount` to the cent |
+| `commPaid_YYYY-MM` (one cell per month) | that month's ledger rows: `[{month, so, si, type, siBase, full, amount, paidPct, name, note, _empId, _branch}, ...]` — `type` ∈ RAC-SP / RAC-BM / COM-SP / COM-BM (payout rows) or `Paid` (whole-SI settlement, excluded from all streams). `full`/`siBase` kept at full precision; `amount` to the cent. Sharded per month so no single cell approaches the 50,000-char Sheets limit; the legacy single-key `commPaid` cell is kept read-only after migration |
 | `exclusions` | `[{so, type, usage}, ...]` (only `so` affects calculations; `type` / `usage` are labels) |
 
 ### Read / write flow
-- **Read (page load):** GET request to the cloud Web App endpoint (`GS_URL`, configured in the HTML); parses `rosters`, `targets`, `schemas`, `chinaProjects`, `exclusions`, and the commission keys (`commRuleSP`, `commRuleBM`, `commRuleCom`, `soDenoms`, `commBrokerage`, `commCollection`, `commExempt`, `commPaid`).
-- **Write (Save to Cloud):** POST each key in sequence using `no-cors` mode to avoid CORS preflight issues and URL length limits. Each area saves its own keys (Target Setup → roster/targets/schemas; commission rule cards → their rule key; Module 3 / Post → the input and ledger keys; SO upload → `soDenoms`).
+- **Read (page load):** GET request to the cloud Web App endpoint (`GS_URL`, configured in the HTML); parses `rosters`, `targets`, `schemas`, `chinaProjects`, `exclusions`, and the commission keys (`commRuleSP`, `commRuleBM`, `commRuleCom`, `soDenoms`, `commBrokerage`, `commCollection`, `commExempt`); the Commission-paid ledger is assembled by **merging all `commPaid_YYYY-MM` shards** into one in-memory array, with one-time migration from the legacy single `commPaid` cell.
+- **Write (Save to Cloud):** POST each key in sequence using `no-cors` mode to avoid CORS preflight issues and URL length limits. Each area saves its own keys (Target Setup → roster/targets/schemas; commission rule cards → their rule key; Module 3 / Post → the input and ledger keys; SO upload → `soDenoms`). Because `no-cors` returns an opaque response the client cannot read, the **Commission-paid ledger is verified after writing**: only the changed month-shards are POSTed, then the ledger is read back and each written shard is compared before success is reported (`Ledger saved & verified ✓`); a mismatch shows an explicit warning instead of a false confirmation.
 
 ### Apps Script code (generic key-value store)
 ```javascript
@@ -488,7 +490,7 @@ function getOrCreateSheet() {
 ```
 
 ### Re-deploying Apps Script
-After any code change: open the project at script.google.com → Save (Cmd+S) → Deploy → Manage deployments → pencil icon → set version to "New version" → Deploy. **The deployment URL does not change; `GS_URL` in the HTML does not need to be updated.**
+After any code change: open the project at script.google.com → Save (Cmd+S) → Deploy → Manage deployments → pencil icon → set version to "New version" → Deploy. **The deployment URL does not change; `GS_URL` in the HTML does not need to be updated.** ⚠️ If a change adds a **new permission/scope** (e.g. `LockService`), the deployed “Anyone” web app can start returning an auth error to the app until you re-authorise and publish a new version — test the live `GS_URL` in a browser after deploying. Prefer keeping the backend generic and doing data maintenance client-side.
 
 ### Troubleshooting
 | Symptom | Likely cause / fix |
@@ -496,6 +498,8 @@ After any code change: open the project at script.google.com → Save (Cmd+S) �
 | Save failed / Failed to fetch | Apps Script not re-deployed after a code change, or network/auth issue. Open `GS_URL` directly in a browser and check for a JSON response. |
 | Cloud unavailable — offline mode | The app still works; data is in local memory only. Reload after restoring network access. |
 | Changes not taking effect | Browser or CDN has cached the old HTML. Hard-refresh with `Cmd+Shift+R`. |
+| Post says “saved” but the month is missing after reload | Historical bug (pre-2026-08-21): the whole ledger lived in one cell and silently overflowed the 50,000-char limit; `no-cors` + `doPost`'s try/catch hid the failure. Fixed by per-month shards + read-back verification. If you now see **⚠ Save NOT confirmed (month)**, the read-back failed — reload to check the real state and re-Post; do **not** trust that save. |
+| Cloud unavailable — offline mode right after editing the Apps Script | A script edit that adds a new OAuth scope (e.g. `LockService`) breaks the live “Anyone” deployment until you re-authorise + re-deploy. Revert the change, or re-authorise and publish a new version. **Do one-time ledger maintenance from the browser, not by editing the deployed script.** |
 
 ---
 
@@ -538,6 +542,9 @@ After any code change: open the project at script.google.com → Save (Cmd+S) �
 - Cloud layer: Google Apps Script (POST write / GET read) + Google Sheets.
 - Hosting: GitHub Pages (public repository, free permanent URL).
 - Amount formatting: `toLocaleString('es-MX')`, two decimal places (MXN).
+- **Cloud cell limit:** Google Sheets caps a cell at **50,000 characters**. Large, growing datasets (the Commission-paid ledger) are **sharded by key** (one `commPaid_YYYY-MM` cell per month), never stored as a single JSON blob.
+- **`no-cors` writes cannot be read back inline**, and the Apps Script `doPost` returns HTTP 200 even on an internal error — together these can hide a failed save, so the ledger **reads back and verifies every write**; other keys stay fire-and-forget.
+- **Do not add scope-requiring calls to the deployed Apps Script casually** (e.g. `LockService`): a scope change breaks the live deployment until re-authorised/re-deployed. Write concurrency is handled client-side (serialised writes) instead.
 
 ---
 
@@ -554,3 +561,4 @@ After any code change: open the project at script.google.com → Save (Cmd+S) �
 | **2026-08 (Commission)** | New **left navigation** (Sales Report / Commission) wrapping the existing five tabs. **RAC commission** built: per-set Salesperson rule (`commRuleSP`, 35 items) + tiered BM rule (`commRuleBM`); BM = 👑 lead of any branch with a RAC-qty target, tier × branch RAC net; verified against real July SI data. Rule tables are cloud-synced, read-only with an Edit toggle. Per-person totals rounded to whole pesos |
 | **2026-08 (Commission cont.)** | **Business group** (RAC-led / CAC-led) selector added per branch in Target Setup (`bizGroup`, per-month, English labels), used only by commercial commission. Target Setup now **opens read-only** with an Edit/Done toggle. **L&CAC (Commercial) commission** built (`commRuleCom`, two rate columns) with the **invoice-level model**: unit = one SI; tier locked to invoice month; brokerage allocated by `fee × (invoice line amount ÷ SO three-line total)`; incremental payout `full × collection% − paid-before`; four streams (RAC-SP / RAC-BM / L&CAC-SP / L&CAC-BM). **Sales Order Report** upload added (`Detail Sales Order` → per-SO RAC+LAC+CAC total, integer, upsert-merged into `soDenoms`). **Module 3 inputs** (`commBrokerage` / `commCollection` / `commPaid`) and **Post month to Commission-paid** added. China Projects join commission as virtual invoices using each row's `3rd Commission` / `Coll. Progress` / `SO Amt excl tax`. Negatives **floor to 0** (⚠ fee &gt; commission / ⚠ over-paid), never clawed back |
 | **2026-08 (Commission polish)** | **Group-as-department**: when a branch has Target Setup groups, each group's lead is its BM and achievement/invoices are scoped to the group (RAC-BM and L&CAC-BM). Commission split into **three sub-tabs** (RAC / L&CAC / Inputs); detail columns renamed (SI Base, Com Full) and set to no-wrap; commission stream label COM → L&CAC. **Export Excel** added — one `.zip` of 1 + (n+1) three-sheet workbooks (Summary / Detail / SI Base) **plus a matching Summary PNG for each**, grouped departments partitioned by ◆ group; attribution by roster. Rule cards default collapsed |
+| **2026-08-21 (Commission fix)** | **Commission-paid ledger sharded per month** (`commPaid_YYYY-MM`, one cell per month) to escape the Google Sheets 50,000-char single-cell limit that was silently dropping posted months (`no-cors` write + `doPost` 200-on-error hid the failure, so “saved ✓” was false). Load now **merges all month shards** and **auto-migrates** the legacy single `commPaid` cell (kept read-only as a fallback); Post / Unpost / Save write only the changed month shard and **read it back to verify** before reporting `Ledger saved & verified ✓` — a mismatch raises an explicit warning. Fossil duplicate settlement rows cleaned out of the ledger. **No Apps Script change** (kept generic to avoid a scope-change outage). Engine, Part 4, Post/Unpost and cross-month top-ups unchanged — only the load/save boundary shards on write and merges on read |
