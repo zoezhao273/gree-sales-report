@@ -698,9 +698,21 @@ async function loadFromCloud(){
     if(data.commBrokerage && Array.isArray(data.commBrokerage)) commBrokerage = data.commBrokerage;
     if(data.commCollection && Array.isArray(data.commCollection)) commCollection = data.commCollection;
     if(data.commExempt && Array.isArray(data.commExempt)) commExempt = data.commExempt;
-    if(data.commPaid && Array.isArray(data.commPaid)) commPaid = data.commPaid;
+    // Commission-paid: prefer per-month shards ('commPaid_YYYY-MM'); fall back to
+    // the legacy single 'commPaid' cell only until the first migration writes the
+    // shards. The legacy cell is left intact as a read-only fallback for any old tab.
+    const _paidHasShards = Object.keys(data).some(k=>/^commPaid_/.test(k));
+    if(_paidHasShards){ commPaid = mergePaidShards(data); }
+    else if(data.commPaid && Array.isArray(data.commPaid)){ commPaid = data.commPaid.slice(); }
+    else { commPaid = []; }
     normalizePaidLedger();             // legacy blank-type settlement rows → Type='Paid', Paid%=100
-    await seedPaidOutExclusions();     // one-time import of Jan–Jun paid-out SIs (idempotent)
+    const _paidSeeded = await seedPaidOutExclusions();   // one-time in-memory import of Jan–Jun paid-out SIs (idempotent)
+    if(_paidHasShards){
+      _paidSig = {}; const _g=groupPaidByMonth(commPaid); Object.keys(_g).forEach(k=>_paidSig[k]=JSON.stringify(_g[k])); // baseline signatures
+      if(_paidSeeded) await persistCommPaid();
+    } else {
+      await persistCommPaid({force:true});   // migrate legacy single cell → per-month shards
+    }
     setSyncStatus('ok', 'Cloud sync OK');
     // Auto-set target month selector to the latest month that has roster data
     const rosterMonths=Object.keys(cloudRosters).sort().reverse();
@@ -3031,6 +3043,52 @@ function isLedgerRow(r){const t=String(r&&r.type||'').trim();return t!==''&&t!==
 // One-time in-memory migration: legacy blank-type rows → Type='Paid', Paid%=100.
 // Persists to cloud on the next Save/Post; the engine treats blank and 'Paid'
 // identically in the meantime, so there is no window of mis-treatment.
+// ── Commission-paid ledger: per-month sharded persistence ────────────
+// The single 'commPaid' cell hit Google Sheets' 50,000-char limit once the
+// ledger grew, silently dropping writes (no-cors + doPost try/catch both hid
+// the failure). We now store one cell per month, key 'commPaid_YYYY-MM'. The
+// in-memory `commPaid` array is unchanged, so the engine, Part 4, Post/Unpost
+// and cross-month top-ups are untouched — only the load/save boundary shards
+// on write and merges on read. Every write is read back and confirmed.
+let _paidSig  = {};                 // last-persisted per-shard JSON signatures
+let _paidLock = Promise.resolve();  // serialize ledger writes (no overlapping POSTs)
+function paidShardKey(m){ return 'commPaid_' + (/^\d{4}-\d{2}$/.test(String(m||''))?m:'unknown'); }
+function groupPaidByMonth(arr){ const g={}; (arr||[]).forEach(r=>{ const k=paidShardKey(r&&r.month); (g[k]||(g[k]=[])).push(r); }); return g; }
+function mergePaidShards(data){ const out=[]; Object.keys(data||{}).filter(k=>/^commPaid_/.test(k)).sort().forEach(k=>{ const v=data[k]; if(Array.isArray(v)) v.forEach(r=>out.push(r)); }); return out; }
+function gsSetQ(key,value){ const run=_paidLock.then(()=>gsSet(key,value)); _paidLock=run.catch(()=>{}); return run; }
+// Write only the month-shards that changed (or all, if force); then read the
+// ledger back from the cloud and confirm every written shard matches before
+// reporting success. This permanently ends the old fire-and-forget "saved ✓".
+async function persistCommPaid(opts){
+  opts=opts||{};
+  const cur=groupPaidByMonth(commPaid);
+  const newSig={}; Object.keys(cur).forEach(k=>newSig[k]=JSON.stringify(cur[k]));
+  const goneKeys=Object.keys(_paidSig).filter(k=>!(k in newSig));        // months that lost all rows → clear
+  const changed=Object.keys(cur).filter(k=>opts.force||_paidSig[k]!==newSig[k]);
+  if(!changed.length && !goneKeys.length){ return {ok:true,wrote:0}; }
+  for(const k of changed){ if(newSig[k].length>=50000){ setSyncStatus('err','Month '+k.slice(9)+' too large ('+newSig[k].length+' chars) — tell Claude'); return {ok:false,tooBig:k}; } }
+  setSyncStatus('loading','Saving ledger…');
+  try{
+    for(const k of changed)  await gsSetQ(k, cur[k]);
+    for(const k of goneKeys) await gsSetQ(k, []);
+  }catch(e){ setSyncStatus('err','Save failed — check connection'); return {ok:false,error:String(e)}; }
+  // Read-back verify. no-cors POST resolves a beat before the write commits,
+  // so retry a few times before trusting a mismatch.
+  let bad='(none)';
+  for(let attempt=0; attempt<6; attempt++){
+    if(attempt) await new Promise(r=>setTimeout(r,700));
+    let ok=true;
+    try{
+      const back=await gsGet();
+      for(const k of changed){ if(JSON.stringify(Array.isArray(back[k])?back[k]:[])!==newSig[k]){ ok=false; bad=k.slice(9); break; } }
+      if(ok) for(const k of goneKeys){ const g=back[k]; if(Array.isArray(g)&&g.length){ ok=false; bad=k.slice(9); break; } }
+    }catch(e){ ok=false; bad='read-back failed'; }
+    if(ok){ _paidSig={}; Object.keys(cur).forEach(k=>_paidSig[k]=newSig[k]); setSyncStatus('ok','Ledger saved & verified ✓ '+new Date().toLocaleTimeString()); return {ok:true,wrote:changed.length+goneKeys.length}; }
+  }
+  setSyncStatus('err','⚠ Save NOT confirmed ('+bad+') — reload to check, do NOT trust this save');
+  try{ alert('云端保存未通过校验（月份 '+bad+'）。请刷新页面确认实际保存结果，不要以为已保存。'); }catch(e){}
+  return {ok:false,verifyFail:bad};
+}
 function normalizePaidLedger(){
   (commPaid||[]).forEach(r=>{ if(r&&String(r.type||'').trim()===''){ r.type='Paid'; if(r.paidPct==null)r.paidPct=100; } });
 }
@@ -3047,8 +3105,7 @@ async function seedPaidOutExclusions(){
     commPaid.push({month,so,si,name,type:'Paid',amount:'',paidPct:100,siBase:'',full:'',note:''});
     added++;
   });
-  if(added){ try{ await gsSet('commPaid',commPaid); }catch(e){ console.warn('paid-out seed save failed:',e); } }
-  return added;
+  return added;   // persistence handled by loadFromCloud (per-month shards)
 }
 
 let comEdit=false, inpEdit=false;
@@ -3942,9 +3999,9 @@ async function toggleInpEdit(){
     await gsSet('commBrokerage',commBrokerage);
     await gsSet('commCollection',commCollection);
     await gsSet('commExempt',commExempt);
-    await gsSet('commPaid',commPaid);
+    const _pr=await persistCommPaid();                 // per-month shards + read-back verify
     await gsSet('chinaProjects',cloudChinaProjects);   // China Collection% edited from Part 2 → persist shared source
-    setSyncStatus('ok','Inputs saved ✓ '+new Date().toLocaleTimeString());
+    if(!_pr||_pr.ok!==false) setSyncStatus('ok','Inputs saved ✓ '+new Date().toLocaleTimeString());
   }catch(e){setSyncStatus('err','Save failed — check connection');}
 }
 
@@ -3984,9 +4041,8 @@ async function postCommissionPaid(){
       _empId:r.person.id||'',_branch:r.person.branch||''};
   }));
   renderInputs();renderCommission();
-  setSyncStatus('loading','Saving ledger…');
-  try{await gsSet('commPaid',commPaid);setSyncStatus('ok','Ledger saved ✓ '+new Date().toLocaleTimeString());}
-  catch(e){setSyncStatus('err','Save failed — check connection');}
+  try{ await persistCommPaid(); }                        // per-month shard + read-back verify (sets its own status)
+  catch(e){ setSyncStatus('err','Save failed — check connection'); }
 }
 
 // Show the Unpost button only when the selected month has rows in the ledger.
@@ -4026,9 +4082,8 @@ async function unpostCommissionPaid(){
   if(!confirm(msg))return;
   commPaid=commPaid.filter(e=>e.month!==M||!isTyped(e));           // keep blank-type paid-out exclusions
   renderInputs();renderCommission();
-  setSyncStatus('loading','Saving ledger…');
-  try{await gsSet('commPaid',commPaid);setSyncStatus('ok',`Unposted ${M} ✓ `+new Date().toLocaleTimeString());}
-  catch(e){setSyncStatus('err','Save failed — check connection');}
+  try{ const _pr=await persistCommPaid(); if(!_pr||_pr.ok!==false) setSyncStatus('ok',`Unposted ${M} ✓ `+new Date().toLocaleTimeString()); }
+  catch(e){ setSyncStatus('err','Save failed — check connection'); }
 }
 function fmtPct01(v){return (v*100).toFixed(1)+'%';}
 function flagBadges(flags){
