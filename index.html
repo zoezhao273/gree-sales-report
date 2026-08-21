@@ -379,7 +379,7 @@ tr.drag-over td{border-top:2px solid #378ADD}
   <div class="header">
     <div>
       <div class="title">💰 Commission</div>
-      <div class="subtitle">GREE Mexico · Monthly commission calculation · RAC (residential) rules</div>
+      <div class="subtitle">GREE Mexico · Monthly commission calculation</div>
     </div>
     <div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px">
       <div id="comm-sync-status" class="sync-status loading"><span class="spinner"></span> —</div>
@@ -699,6 +699,7 @@ async function loadFromCloud(){
     if(data.commCollection && Array.isArray(data.commCollection)) commCollection = data.commCollection;
     if(data.commExempt && Array.isArray(data.commExempt)) commExempt = data.commExempt;
     if(data.commPaid && Array.isArray(data.commPaid)) commPaid = data.commPaid;
+    normalizePaidLedger();             // legacy blank-type settlement rows → Type='Paid', Paid%=100
     await seedPaidOutExclusions();     // one-time import of Jan–Jun paid-out SIs (idempotent)
     setSyncStatus('ok', 'Cloud sync OK');
     // Auto-set target month selector to the latest month that has roster data
@@ -2172,6 +2173,17 @@ function exportCollCSV(){
 const CN_CURR=['USD','CNY','MXN'];
 const CN_LINES=['RAC','LAC','CAC'];
 const CN_NOTES=['国内交货','索克出口','墨珠出口'];
+// Shipping Progress — the shared 3-option status used by Part 2 (commCollection.ship)
+// and China Projects (cloudChinaProjects.progress). shipOptsFor keeps a non-standard
+// legacy value (e.g. an old free-text note) as a preserved option so switching the
+// column to a dropdown never silently drops data.
+const SHIP_OPTS=['Not Shipped','Partially Shipped','Fully Shipped'];
+function shipOptsFor(cur){
+  const o=[{v:'',l:'—'}].concat(SHIP_OPTS.map(s=>({v:s,l:s})));
+  const c=String(cur||'').trim();
+  if(c&&!SHIP_OPTS.includes(c))o.push({v:c,l:c+' (legacy)'});
+  return o;
+}
 const EXCL_TYPES=['Standard','Inner Use','Sample'];
 const EXCL_USAGES=['Free Promotional Giveaway','Inner Use - Fixed Asset'];
 
@@ -2365,7 +2377,7 @@ function renderChina(){
         <td>${money('thirdComm',third)}</td>
         <td class="num" id="cn-base-${i}" style="color:#666;font-variant-numeric:tabular-nums">${base==null?'—':fmtAmt(base)}</td>
         <td style="min-width:100px">${selHTML(CN_NOTES.map(c=>({v:c,l:c})),p.note,`cnSet(${i},'note',this.value)`)}</td>
-        <td><input class="ri" type="text" value="${esc(p.progress||'')}" placeholder="Progress note" style="min-width:110px" onchange="cnSet(${i},'progress',this.value)"></td>
+        <td style="min-width:120px">${selHTML(shipOptsFor(p.progress),p.progress,`cnSet(${i},'progress',this.value)`)}</td>
         <td style="text-align:center"><button class="delbtn" onclick="delChinaRow(${i})">🗑</button></td>
       </tr>`;
     }
@@ -2405,7 +2417,7 @@ function renderChina(){
           <th style="min-width:88px;background:#f8f8f6">3rd<br>Commission</th>
           <th style="min-width:96px;background:#f8f8f6">Commission<br>Base</th>
           <th style="min-width:90px">Note</th>
-          <th style="min-width:100px;text-align:left">Progress</th>
+          <th style="min-width:100px;text-align:left">Shipping Progress</th>
           ${ro?'':'<th style="width:34px"></th>'}
         </tr></thead>
         <tbody>${totalRow}${rows}</tbody>
@@ -3007,17 +3019,32 @@ const PAIDOUT_SEED=[
 ["2026-06","MX-20260525-002","SI-MX-2605-00024","Adrian Cabrera Ramirez"],
 ["2026-06","PRJ-20260521-003","SI-MX-2607-00028","Sebastián (Yu Chen)"]
 ];
-// Idempotent: adds only SIs not already present as a blank-type exclusion row,
+// ── Commission-paid row semantics ────────────────────────────
+// A row is a whole-SI SETTLEMENT marker ("Paid · 100%") when its Type is
+// 'Paid' (or legacy blank, kept for backward-compat with pre-migration cloud
+// data). Settlement rows are excluded from ALL streams (payout skipped,
+// achievement unaffected), Type locked, and never touched by Post/Unpost.
+// Every other row (RAC-SP/RAC-BM/COM-SP/COM-BM/…) is a normal per-stream
+// payout ledger entry.
+function isSettledPaid(r){const t=String(r&&r.type||'').trim();return t===''||t==='Paid';}
+function isLedgerRow(r){const t=String(r&&r.type||'').trim();return t!==''&&t!=='Paid';}
+// One-time in-memory migration: legacy blank-type rows → Type='Paid', Paid%=100.
+// Persists to cloud on the next Save/Post; the engine treats blank and 'Paid'
+// identically in the meantime, so there is no window of mis-treatment.
+function normalizePaidLedger(){
+  (commPaid||[]).forEach(r=>{ if(r&&String(r.type||'').trim()===''){ r.type='Paid'; if(r.paidPct==null)r.paidPct=100; } });
+}
+// Idempotent: adds only SIs not already present as a settlement row,
 // so repeated page loads never duplicate; typed ledger rows are left alone.
 async function seedPaidOutExclusions(){
-  // Import ONLY when the cloud ledger has no paid-out (blank-type) rows yet.
+  // Import ONLY when the cloud ledger has no settlement rows yet.
   // After the first import, any later deletion or edit is respected — the seed
   // never re-adds rows, so removed paid-out SIs stay removed.
-  if(commPaid.some(r=>r&&!String(r.type||'').trim())) return 0;
+  if(commPaid.some(r=>r&&isSettledPaid(r))) return 0;
   let added=0;
   PAIDOUT_SEED.forEach(([month,so,si,name])=>{
     const k=String(si).trim(); if(!k)return;
-    commPaid.push({month,so,si,name,type:'',amount:'',note:''});
+    commPaid.push({month,so,si,name,type:'Paid',amount:'',paidPct:100,siBase:'',full:'',note:''});
     added++;
   });
   if(added){ try{ await gsSet('commPaid',commPaid); }catch(e){ console.warn('paid-out seed save failed:',e); } }
@@ -3086,7 +3113,7 @@ function pctOf(so){const e=commCollection.find(x=>String(x.so).trim()===so);if(!
 function paidBeforeMap(calcMonth){
   const m={};
   commPaid.forEach(e=>{
-    if(!e||!e.si||!e.type)return;
+    if(!e||!e.si||!isLedgerRow(e))return;                   // settlement rows ('Paid'/blank) are not per-stream ledger
     if(String(e.month||'')>=calcMonth)return;               // current & future months excluded → idempotent
     const k=e.type+'::'+String(e.si).trim();
     m[k]=(m[k]||0)+(parseFloat(e.amount)||0);
@@ -3236,6 +3263,23 @@ function buildInvoiceIndex(){
 function commEngine(M){
   const cache=makeTierCache();
   const paid=paidBeforeMap(M);
+  // ── Cross-month top-up sourcing (frozen Full) ──────────────────
+  // Every posted ledger row froze the invoice's 100%-collection commission (Full).
+  // frozenFull is the EARLIEST such value per (Type::SI) from earlier months — the
+  // authoritative base for later top-ups, independent of whether the SI is still in
+  // the uploaded SI file. frozenMeta also carries SO + owner so a top-up can be paid
+  // and attributed even after the SI has dropped out of the file entirely.
+  const frozenMeta={};
+  commPaid.forEach(e=>{
+    if(!e||!e.si||!isLedgerRow(e))return;
+    if(String(e.month||'')>=M)return;                              // earlier months only → locks to first posting
+    const k=e.type+'::'+String(e.si).trim();
+    const f=parseFloat(e.full);
+    if(!(k in frozenMeta)||String(e.month||'')<frozenMeta[k].month)
+      frozenMeta[k]={month:String(e.month||''),full:isNaN(f)?null:f,so:String(e.so||'').trim(),name:e.name||'',empId:e._empId||'',branch:e._branch||''};
+  });
+  const frozenFull={};Object.keys(frozenMeta).forEach(k=>{if(frozenMeta[k].full!=null)frozenFull[k]=frozenMeta[k].full;});
+  const handled=new Set();                                         // (Type::SI) produced via the file/China path this run
   const spRate={};commRuleSP.forEach(r=>{if(r.code)spRate[r.code]={rate:parseFloat(r.rate)||0,name:r.name||''};});
   const rows=[],warnings=[];
   const rosterAt=m=>cache.rosterOf(m)||[];
@@ -3247,6 +3291,9 @@ function commEngine(M){
     return{branch:null,p:{id:empId||'—',name:empName||'(unknown)'},inRoster:false};
   };
   const push=(type,person,iv,base,fee,tierInfo,full,pct,before,flags)=>{
+    const fk=type+'::'+String(iv.si).trim();
+    handled.add(fk);                                                 // this (Type::SI) is covered by the file/China path
+    if(fk in frozenFull)full=frozenFull[fk];                         // frozen Full is authoritative once posted (rate/base locked to first month)
     let pay;
     if(full<0){                                                       // fee exceeds gross commission → floor to 0 (封零)
       pay=0;flags=[...flags,'NEGFULL:'+(-full).toFixed(2)];
@@ -3256,10 +3303,15 @@ function commEngine(M){
       else pay=Math.max(raw,0);
     }
     if(Math.abs(pay)<0.005){
-      const meaningful=flags.some(f=>f!=='CN');                       // CN alone is informational, not a reason to show
+      const meaningful=flags.some(f=>f!=='CN'&&f!=='TOPUP');          // CN / TOPUP alone are informational, not a reason to show
       if(!meaningful)return;                                          // settled & clean → hide
     }
-    rows.push({type,person,invMonth:iv.m,so:iv.so,si:iv.si,base,fee,tierInfo,full,pct,before,pay,flags});
+    // SI Base = the SI's own excl-tax amount for this stream's line (audit only):
+    // RAC streams → invoice RAC amount, L&CAC streams → invoice MXL+MXC amount,
+    // China virtual invoices carry no per-line split so fall back to their MXN base.
+    let siAmt=String(type).startsWith('RAC')?iv.racAmt:iv.lcacAmt;
+    if(siAmt==null)siAmt=base;
+    rows.push({type,person,invMonth:iv.m,so:iv.so,si:iv.si,base,siAmt,fee,tierInfo,full,pct,before,pay,flags});
   };
 
   const exemptSO=new Set(commExempt.map(e=>String(e.so||'').trim()).filter(Boolean));  // SOs excluded from all commission
@@ -3269,7 +3321,7 @@ function commEngine(M){
   // historically fully-paid SIs (100%) — skip them in every stream. Payout only;
   // their sales still count in computeP (achievement), so cross-month SOs keep
   // the correct opening-month tier for their later, still-payable SIs.
-  const paidOutSI=new Set(commPaid.filter(e=>e&&!String(e.type||'').trim()&&e.si).map(e=>String(e.si).trim()));
+  const paidOutSI=new Set(commPaid.filter(e=>e&&isSettledPaid(e)&&e.si).map(e=>String(e.si).trim()));
 
   const invs=buildInvoiceIndex().filter(iv=>iv.m<=M);
   invs.forEach(iv=>{
@@ -3400,6 +3452,27 @@ function commEngine(M){
     }
   });
 
+  // — Part 4-only cross-month top-ups (SI has left the SI file) —
+  // For every frozen (Type::SI) NOT produced by the file/China path this run, pay the
+  // remaining balance straight from the ledger: pay = frozen Full × current collection%
+  // − Σ already-paid (MXN, earlier months). This is what lets a top-up be paid after the
+  // SI is no longer in the uploaded file — Part 4 is the authoritative record. China
+  // projects persist in cloudChinaProjects so they are always handled above; only real
+  // SI invoices that dropped out of the file reach here. Owner + SO come from the frozen
+  // ledger row; collection% from Part 2 (100% when the SO isn't listed / has been removed).
+  Object.keys(frozenMeta).forEach(k=>{
+    if(handled.has(k))return;                                        // already produced from the file/China path
+    const meta=frozenMeta[k];
+    if(meta.full==null)return;                                       // no frozen Full → cannot reconstruct
+    const ix=k.indexOf('::'); const type=k.slice(0,ix), si=k.slice(ix+2);
+    if(paidOutSI.has(si))return;                                     // settled (Paid) → skip
+    const so=meta.so;
+    if(exemptSO.has(so))return;                                      // exemption list → no commission
+    const person={id:meta.empId||'—',name:meta.name||'(unknown)',branch:meta.branch||null,inRoster:!!meta.branch};
+    const iv={si,so,m:meta.month,racAmt:undefined,lcacAmt:undefined};
+    push(type,person,iv,'',0,{frozen:true},meta.full,pctOf(so),paid[k]||0,['TOPUP']);
+  });
+
   // — New-customer development incentive (COM-NC · flat, per new L&CAC customer) —
   // Independent of the invoice loop. Reuses computeP's per-person _newCusts
   // (Customer Codes whose First Cooperate Date is M that placed a valid L&CAC
@@ -3507,7 +3580,9 @@ function toggleInpSec(k){inpOpen[k]=!inpOpen[k];renderInputs();}
 // all collapsed by default (a month is open only if explicitly toggled).
 let inpPaidOpenMonths={};
 function toggleInpPaidMonth(m){inpPaidOpenMonths[m]=!inpPaidOpenMonths[m];renderInputs();}
-function addPaidRow(){collectInpTables();commPaid.push({month:'',so:'',si:'',type:'RAC-SP',amount:'',name:'',note:''});inpPaidOpenMonths['(no month)']=true;renderInputs();}
+let inpColDoneOpen=false;   // Part 2 "Fully collected (100%)" group — collapsed by default
+function toggleInpColDone(){inpColDoneOpen=!inpColDoneOpen;renderInputs();}
+function addPaidRow(){collectInpTables();commPaid.push({month:'',so:'',si:'',type:'RAC-SP',siBase:'',full:'',amount:'',paidPct:'',name:'',note:''});inpPaidOpenMonths['(no month)']=true;renderInputs();}
 
 // Row reordering within a section's SO list. Each section maps to its array
 // and the cloud key to persist after a drop. Works in read-only mode (you are
@@ -3546,7 +3621,7 @@ const INP_COLS={
   brk:[['so','SO No.'],['fee','3rd Brokerage Fee']],
   col:[['so','SO No.'],['pct','Collection %'],['ship','Shipping']],
   exm:[['so','SO No.'],['reason','Reason']],
-  paid:[['month','Month'],['so','SO No.'],['si','SI No.'],['type','Type'],['amount','Commission'],['name','Name'],['note','Note']]
+  paid:[['month','Month'],['so','SO No.'],['si','SI No.'],['type','Type'],['siBase','SI Base'],['full','Full'],['amount','Commission'],['paidPct','Paid%'],['name','Name'],['note','Note']]
 };
 function inpArr(sec){return {brk:commBrokerage,col:commCollection,exm:commExempt,paid:commPaid}[sec]||[];}
 // Display string for a cell — MUST match what the read-only row actually shows,
@@ -3556,9 +3631,12 @@ function inpDisp(sec,f,r){
   if(f==='fee')return '$'+fmtAmt(parseFloat(r.fee)||0);
   if(f==='ship')return r.ship||'—';
   if(sec==='paid'){                                // paid rows: match the on-screen cells
-    const excl=!String(r.type||'').trim();
-    if(f==='type')return excl?'已付·100%':String(r.type||'');
+    const excl=isSettledPaid(r);
+    if(f==='type')return excl?'Paid':String(r.type||'');
+    if(f==='siBase')return excl?'—':'$'+fmtAmt(parseFloat(r.siBase)||0);
+    if(f==='full')return excl?'—':'$'+fmtAmt(parseFloat(r.full)||0);
     if(f==='amount')return excl?'—':'$'+fmtAmt(parseFloat(r.amount)||0);
+    if(f==='paidPct'){const p=(r.paidPct===''||r.paidPct==null)?(excl?100:null):parseFloat(r.paidPct);return p==null?'—':(p+'%');}
   }
   if(f==='amount')return '$'+fmtAmt(parseFloat(r.amount)||0);
   return (r[f]==null?'':String(r[f]));
@@ -3702,16 +3780,61 @@ function renderInputs(){
     <div class="fn" style="margin-top:6px">SOs not listed → fee 0. Fee is allocated to each invoice by (invoice product-line amount ÷ SO RAC+LAC+CAC total from the Sales Order Report). Drag ⠿ to reorder rows.</div>`;
 
   // Part 2 · Collection Progress (+ Shipping Progress label, informational only)
-  const SHIP_OPTS=['Not Shipped','Partially Shipped','Fully Shipped'];
-  const colRows=commCollection.map((r,i)=>inpEdit
+  const colRowHtml=i=>{const r=commCollection[i];return inpEdit
     ?`<tr><td class="lft"><input class="ri-c wide inp-col" data-i="${i}" data-f="so" value="${esc(r.so||'')}" style="font-family:ui-monospace,Menlo,monospace"></td>
        <td><input class="ri-c inp-col" type="text" inputmode="decimal" data-i="${i}" data-f="pct" value="${r.pct??''}"></td>
        <td><select class="inp-col" data-i="${i}" data-f="ship" style="font-size:11px;padding:4px 6px">${SHIP_OPTS.map(o=>`<option${(r.ship||'')===o?' selected':''}>${o}</option>`).join('')}<option value=""${!r.ship?' selected':''}>—</option></select></td>
        <td style="width:34px"><button class="delbtn" onclick="collectInpTables();commCollection.splice(${i},1);renderInputs()">🗑</button></td></tr>`
-    :`<tr ondragover="inpRowOver('col',event)" ondrop="inpRowDrop('col',${i})"${inpHide('col',r)}>${inpDragTd('col',i)}<td class="lft mono">${esc(r.so||'')}</td><td>${(parseFloat(r.pct)||0)}%</td><td>${esc(r.ship||'—')}</td>${inpMatchTd(invSO,r.so)}</tr>`).join('');
+    :`<tr ondragover="inpRowOver('col',event)" ondrop="inpRowDrop('col',${i})"${inpHide('col',r)}>${inpDragTd('col',i)}<td class="lft mono">${esc(r.so||'')}</td><td>${(parseFloat(r.pct)||0)}%</td><td>${esc(r.ship||'—')}</td>${inpMatchTd(invSO,r.so)}</tr>`;};
   const colAdd=inpEdit?`<tr><td colspan="4" style="text-align:left;padding-top:8px"><button class="btn sm" onclick="collectInpTables();commCollection.push({so:'',pct:'',ship:''});renderInputs()">+ Add SO</button></td></tr>`:'';
-  const col=`<table class="ctable" style="max-width:600px"><thead><tr>${inpEdit?'':'<th style="width:22px"></th>'}<th class="lft">SO No.${inpFHdr('col','so')}</th><th style="width:150px">Collection Progress (%)${inpFHdr('col','pct')}</th><th style="width:140px">Shipping Progress${inpFHdr('col','ship')}</th>${inpEdit?'<th></th>':'<th style="width:44px" title="Whether this SO matches an invoice in the loaded SI file">SI</th>'}</tr></thead><tbody>${colRows||''}${colAdd}</tbody></table>
-    <div class="fn" style="margin-top:6px">SOs not listed → 100% collection. Enter cumulative progress as of month-end; payouts top up incrementally as it rises. <strong>Shipping Progress is a status label only</strong> — it does not affect any calculation (commission follows the SI invoices actually issued). Drag ⠿ to reorder rows.</div>`;
+  const colHead=`<thead><tr>${inpEdit?'':'<th style="width:22px"></th>'}<th class="lft">SO No.${inpFHdr('col','so')}</th><th style="width:150px">Collection Progress (%)${inpFHdr('col','pct')}</th><th style="width:140px">Shipping Progress${inpFHdr('col','ship')}</th>${inpEdit?'<th></th>':'<th style="width:44px" title="Whether this SO matches an invoice in the loaded SI file">SI</th>'}</tr></thead>`;
+  const colFoot=`<div class="fn" style="margin-top:6px">SOs not listed → 100% collection. Enter cumulative progress as of month-end; payouts top up incrementally as it rises. <strong>Shipping Progress is a status label only</strong> — it does not affect any calculation. Rows tagged <span class="badge blue" style="font-size:9px">China Project</span> are pulled from the China Projects module <strong>only when they were not fully collected from the start</strong> — editing their Collection% and Shipping here <strong>syncs both ways</strong>; at 100% they move to the folded group. Projects that have always been 100% are not shown. Drag ⠿ to reorder rows.</div>`;
+  const isDoneCol=r=>parseFloat(r.pct)>=100;
+  // China Projects joined into Part 2. Same single source (cloudChinaProjects) as the
+  // China Projects module, so editing Collection%/Shipping in either place updates the
+  // other. Only projects that were NOT fully collected from the start are tracked here:
+  // the first time a project is seen below 100% it is marked (part2=true, persisted on
+  // the next save), so it stays visible — moving into the folded group once it reaches
+  // 100%. Projects that have always been 100% are never pulled in.
+  const cnAll=(typeof cloudChinaProjects!=='undefined'&&cloudChinaProjects||[])
+    .map((cp,ci)=>({cp,ci}))
+    .filter(x=>{
+      if(!String(x.cp.project||'').trim())return false;
+      if(parseFloat(x.cp.collProg)<100)x.cp.part2=true;             // once seen partial → track in Part 2
+      return x.cp.part2===true;                                     // pull tracked projects only (excludes always-100%)
+    });
+  const cnColEdit=x=>`<tr><td class="lft mono" style="color:#888">${esc(String(x.cp.project||'').trim())}</td>
+    <td><input class="ri-c inp-cncol" data-ci="${x.ci}" type="text" inputmode="decimal" value="${x.cp.collProg??''}"></td>
+    <td><select class="ri-c inp-cnship" data-ci="${x.ci}" style="font-size:11px;padding:3px 4px">${shipOptsFor(x.cp.progress).map(o=>`<option value="${esc(o.v)}"${o.v===String(x.cp.progress||'')?' selected':''}>${esc(o.l)}</option>`).join('')}</select></td>
+    <td><span class="badge blue" style="font-size:10px">China Project</span></td></tr>`;
+  const cnColRead=x=>`<tr><td style="width:22px"></td><td class="lft mono">${esc(String(x.cp.project||'').trim())}</td><td>${parseFloat(x.cp.collProg)||0}%</td><td>${esc(x.cp.progress||'—')}</td><td class="lft"><span class="badge blue" style="font-size:10px">China Project</span></td></tr>`;
+  const cnActive=cnAll.filter(x=>!(parseFloat(x.cp.collProg)>=100));
+  const cnDone=cnAll.filter(x=>parseFloat(x.cp.collProg)>=100);
+  let col;
+  if(inpEdit){                                                     // edit mode → flat, commCollection editable + China Collection% editable
+    const body=commCollection.map((r,i)=>colRowHtml(i)).join('')+cnAll.map(cnColEdit).join('')+colAdd;
+    col=`<table class="ctable" style="max-width:600px">${colHead}<tbody>${body}</tbody></table>${colFoot}`;
+  }else if(inpSecActive('col')){                                   // filter active → flat commCollection only (China rows are external)
+    col=`<table class="ctable" style="max-width:600px">${colHead}<tbody>${commCollection.map((r,i)=>colRowHtml(i)).join('')}</tbody></table>${colFoot}`;
+  }else{                                                           // read-only working view → split active vs fully-collected (100%)
+    const active=[],done=[];
+    commCollection.forEach((r,i)=>{(isDoneCol(r)?done:active).push(i);});
+    const activeBody=(active.map(colRowHtml).join('')+cnActive.map(cnColRead).join(''))||`<tr><td colspan="5" style="text-align:center;color:#bbb;padding:10px;font-size:12px">No open collections — all listed SOs are fully collected.</td></tr>`;
+    const mainTable=`<table class="ctable" style="max-width:600px">${colHead}<tbody>${activeBody}</tbody></table>`;
+    let doneBlock='';
+    const doneCount=done.length+cnDone.length;
+    if(doneCount){
+      const open=inpColDoneOpen;
+      const doneBody=open?`<div style="padding:0 10px 10px"><table class="ctable" style="max-width:600px">${colHead}<tbody>${done.map(colRowHtml).join('')}${cnDone.map(cnColRead).join('')}</tbody></table></div>`:'';
+      doneBlock=`<div style="border:1px solid #f0f0ee;border-radius:6px;margin-top:8px;overflow:hidden">
+        <div style="display:flex;align-items:center;gap:8px;padding:7px 10px;cursor:pointer;background:#fbfbf9" onclick="toggleInpColDone()">
+          <span style="font-size:10px;color:#999;transition:transform .15s;transform:rotate(${open?0:-90}deg)">▼</span>
+          <span style="font-size:12px;font-weight:600;flex:1;color:#3B6D11">✓ Fully collected · 100%</span>
+          <span style="font-size:11px;color:#bbb">${doneCount} SO(s)</span>
+        </div>${doneBody}</div>`;
+    }
+    col=`${mainTable}${doneBlock}${colFoot}`;
+  }
 
   // Part 3 · Exemption (SOs excluded from ALL commission)
   const exmRows=commExempt.map((r,i)=>inpEdit
@@ -3724,32 +3847,45 @@ function renderInputs(){
     <div class="fn" style="margin-top:6px">Listed SOs are dropped from <strong>all</strong> commission calculations (every stream, salesperson &amp; BM) — e.g. loss-making orders with no margin to pay commission from. Applies to SI invoices and China projects that share the SO No. Drag ⠿ to reorder rows.</div>`;
 
   // Part 4 · Commission-paid (ledger) — grouped by month, each month collapsed by default.
-  // Rows with a BLANK type are imported paid-out SIs (100% settled): they render a
-  // read-only badge instead of a Type select, so edit/save can NEVER mutate their type.
-  const paidBadge='<span class="badge amber" style="font-size:10px" title="Historically paid in full (100%) before this tool — excluded from all later calculation; Type locked; never overwritten by Post/Unpost">已付·100%</span>';
+  // Columns: Month | SO | SI | Type | SI Base | Full | Commission(MXN) | Paid% | Name | Note.
+  // A 'Paid' (or legacy blank) Type is a whole-SI SETTLEMENT marker: SI Base/Full/
+  // Commission show "—", Paid% shows 100%, Type is locked (read-only badge instead of
+  // the select) so edit/save can NEVER mutate it, and Post/Unpost never touch it.
+  // SI Base = SI amount excl. tax (audit only); Full = 100%-collection commission
+  // (the load-bearing frozen value); Commission = this month's payout; Paid% = this
+  // month's incremental percentage. Full drives cross-month top-ups.
+  const paidBadge='<span class="badge amber" style="font-size:10px" title="Settled — SI paid in full (100%). Excluded from all later calculation; Type locked; never overwritten by Post/Unpost">Paid</span>';
+  const paidPctDisp=r=>{const p=(r.paidPct===''||r.paidPct==null)?null:parseFloat(r.paidPct);return p==null?'—':(p+'%');};
   const paidRowHtml=i=>{
-    const r=commPaid[i], excl=!String(r.type||'').trim();
+    const r=commPaid[i], excl=isSettledPaid(r);
     if(inpEdit){
-      if(excl){                                                    // paid-out row: read-only except Note (Type locked)
+      if(excl){                                                    // settlement row: read-only except Note (Type locked)
         return `<tr><td>${esc(r.month||'')}</td><td class="lft mono">${esc(r.so||'')}</td><td class="lft mono">${esc(r.si||'')}</td>
-          <td>${paidBadge}</td><td style="color:#bbb">—</td><td class="lft">${esc(r.name||'')}</td>
+          <td>${paidBadge}</td><td style="color:#bbb">—</td><td style="color:#bbb">—</td><td style="color:#bbb">—</td><td style="color:#666;font-size:11px">100%</td><td class="lft">${esc(r.name||'')}</td>
           <td class="lft"><input class="ri-c wide inp-paid" data-i="${i}" data-f="note" value="${esc(r.note||'')}" placeholder="—"></td>
           <td style="width:34px"><button class="delbtn" onclick="collectInpTables();commPaid.splice(${i},1);renderInputs()">🗑</button></td></tr>`;
       }
       return `<tr><td><input class="ri-c inp-paid" style="width:76px" data-i="${i}" data-f="month" value="${esc(r.month||'')}" placeholder="YYYY-MM"></td>
         <td class="lft"><input class="ri-c wide inp-paid" data-i="${i}" data-f="so" value="${esc(r.so||'')}" style="font-family:ui-monospace,Menlo,monospace"></td>
         <td class="lft"><input class="ri-c wide inp-paid" data-i="${i}" data-f="si" value="${esc(r.si||'')}" style="font-family:ui-monospace,Menlo,monospace"></td>
-        <td><select class="inp-paid" data-i="${i}" data-f="type" style="font-size:11px;padding:3px">${['RAC-SP','RAC-BM','RAC-BM0','COM-SP','COM-BM','COM-NC'].map(t=>`<option${r.type===t?' selected':''}>${t}</option>`).join('')}</select></td>
-        <td><input class="ri-c inp-paid" type="text" inputmode="decimal" data-i="${i}" data-f="amount" value="${r.amount??''}"></td>
+        <td><select class="inp-paid" data-i="${i}" data-f="type" style="font-size:11px;padding:3px"><option value="Paid"${excl?' selected':''}>Paid (settle · exclude)</option>${['RAC-SP','RAC-BM','RAC-BM0','COM-SP','COM-BM','COM-NC'].map(t=>`<option${r.type===t?' selected':''}>${t}</option>`).join('')}</select></td>
+        <td><input class="ri-c inp-paid" style="width:80px" type="text" inputmode="decimal" data-i="${i}" data-f="siBase" value="${r.siBase??''}" placeholder="—"></td>
+        <td><input class="ri-c inp-paid" style="width:80px" type="text" inputmode="decimal" data-i="${i}" data-f="full" value="${r.full??''}" placeholder="—"></td>
+        <td><input class="ri-c inp-paid" style="width:80px" type="text" inputmode="decimal" data-i="${i}" data-f="amount" value="${r.amount??''}"></td>
+        <td><input class="ri-c inp-paid" style="width:56px" type="text" inputmode="decimal" data-i="${i}" data-f="paidPct" value="${r.paidPct??''}" placeholder="—"></td>
         <td class="lft"><input class="ri-c wide inp-paid" data-i="${i}" data-f="name" value="${esc(r.name||'')}"></td>
         <td class="lft"><input class="ri-c wide inp-paid" data-i="${i}" data-f="note" value="${esc(r.note||'')}" placeholder="—"></td>
         <td style="width:34px"><button class="delbtn" onclick="collectInpTables();commPaid.splice(${i},1);renderInputs()">🗑</button></td></tr>`;
     }
     const typeCell=excl?`<td>${paidBadge}</td>`:`<td style="font-size:11px">${esc(r.type||'')}</td>`;
-    const amtCell=excl?`<td style="color:#bbb">—</td>`:`<td>$${fmtAmt(parseFloat(r.amount)||0)}</td>`;
-    return `<tr${inpHide('paid',r)}><td>${esc(r.month||'')}</td><td class="lft mono">${esc(r.so||'')}</td><td class="lft mono">${esc(r.si||'')}</td>${typeCell}${amtCell}<td class="lft">${esc(r.name||'')}</td><td class="lft">${esc(r.note||'')}</td></tr>`;
+    const dash='<td style="color:#bbb">—</td>';
+    const baseCell=excl?dash:`<td>$${fmtAmt(parseFloat(r.siBase)||0)}</td>`;
+    const fullCell=excl?dash:`<td>$${fmtAmt(parseFloat(r.full)||0)}</td>`;
+    const amtCell=excl?dash:`<td>$${fmtAmt(parseFloat(r.amount)||0)}</td>`;
+    const pctCell=excl?`<td style="color:#666;font-size:11px">100%</td>`:`<td style="font-size:11px">${paidPctDisp(r)}</td>`;
+    return `<tr${inpHide('paid',r)}><td>${esc(r.month||'')}</td><td class="lft mono">${esc(r.so||'')}</td><td class="lft mono">${esc(r.si||'')}</td>${typeCell}${baseCell}${fullCell}${amtCell}${pctCell}<td class="lft">${esc(r.name||'')}</td><td class="lft">${esc(r.note||'')}</td></tr>`;
   };
-  const paidHead=`<thead><tr><th style="width:76px">Month${inpFHdr('paid','month')}</th><th class="lft">SO No.${inpFHdr('paid','so')}</th><th class="lft">SI No.${inpFHdr('paid','si')}</th><th style="width:92px">Type${inpFHdr('paid','type')}</th><th style="width:110px">Commission (MXN)${inpFHdr('paid','amount')}</th><th class="lft">Salesperson Name${inpFHdr('paid','name')}</th><th class="lft" style="min-width:130px">Note${inpFHdr('paid','note')}</th>${inpEdit?'<th></th>':''}</tr></thead>`;
+  const paidHead=`<thead><tr><th style="width:76px">Month${inpFHdr('paid','month')}</th><th class="lft">SO No.${inpFHdr('paid','so')}</th><th class="lft">SI No.${inpFHdr('paid','si')}</th><th style="width:92px">Type${inpFHdr('paid','type')}</th><th style="width:92px" title="SI amount excl. tax (audit only)">SI Base${inpFHdr('paid','siBase')}</th><th style="width:92px" title="100%-collection commission — frozen; drives cross-month top-ups">Full${inpFHdr('paid','full')}</th><th style="width:110px" title="This month's payout">Commission (MXN)${inpFHdr('paid','amount')}</th><th style="width:66px" title="This month's incremental percentage">Paid%${inpFHdr('paid','paidPct')}</th><th class="lft">Salesperson Name${inpFHdr('paid','name')}</th><th class="lft" style="min-width:130px">Note${inpFHdr('paid','note')}</th>${inpEdit?'<th></th>':''}</tr></thead>`;
   const paidGroups={};
   commPaid.forEach((r,i)=>{const m=String(r.month||'').trim()||'(no month)';(paidGroups[m]=paidGroups[m]||[]).push(i);});
   const paidMonths=Object.keys(paidGroups).sort();
@@ -3761,8 +3897,8 @@ function renderInputs(){
     const shown=paidFilterOn?idxs.filter(i=>!inpRowHidden('paid',commPaid[i])):idxs;
     if(paidFilterOn&&!shown.length)return '';
     const open=paidFilterOn?true:!!inpPaidOpenMonths[m];
-    const nExcl=shown.filter(i=>!String(commPaid[i].type||'').trim()).length, nTyped=shown.length-nExcl;
-    const tag=[nTyped?`${nTyped} posted`:'',nExcl?`${nExcl} paid-out`:''].filter(Boolean).join(' · ');
+    const nExcl=shown.filter(i=>isSettledPaid(commPaid[i])).length, nTyped=shown.length-nExcl;
+    const tag=[nTyped?`${nTyped} posted`:'',nExcl?`${nExcl} paid`:''].filter(Boolean).join(' · ');
     const cnt=paidFilterOn?`${shown.length} of ${idxs.length}`:`${idxs.length}`;
     const body=open?`<div style="padding:0 10px 10px"><div style="overflow-x:auto"><table class="ctable" style="white-space:nowrap">${paidHead}<tbody>${shown.map(paidRowHtml).join('')}</tbody></table></div></div>`:'';
     return `<div style="border:1px solid #f0f0ee;border-radius:6px;margin-top:8px;overflow:hidden">
@@ -3774,7 +3910,7 @@ function renderInputs(){
   }).join('');
   const paidAdd=inpEdit?`<div style="margin-top:8px"><button class="btn sm" onclick="addPaidRow()">+ Add row</button></div>`:'';
   const paid=`${inpChip('paid',commPaid,'record(s)')}${paidBlocks||'<div class="fn" style="padding:8px 0">No matching records.</div>'}${paidAdd}
-    <div class="fn" style="margin-top:8px">Grouped by month, collapsed by default. Use the ▾ on any column header to filter — filters apply across <strong>all</strong> months at once (e.g. filter one SO/SI to see every month it was paid in). Rows tagged <span class="badge amber" style="font-size:10px">已付·100%</span> are historically fully-paid SIs (imported once): excluded from <strong>all</strong> later calculation, Type locked, never overwritten by Post/Unpost. Other rows are the normal payout ledger from "Post month to Commission-paid" — a month's calc counts only EARLIER months' typed rows as already-paid. Note is free-text.</div>`;
+    <div class="fn" style="margin-top:8px">Grouped by month, collapsed by default. Use the ▾ on any column header to filter — filters apply across <strong>all</strong> months at once (e.g. filter one SO/SI to see every month it was paid in). Rows tagged <span class="badge amber" style="font-size:10px">Paid</span> are settled SIs — paid in full 100% (seeded, <strong>or</strong> set manually via the Type dropdown → <em>Paid (settle · exclude)</em>): excluded from <strong>all</strong> later calculation (payout skipped, achievement rate unaffected), Type locked after save, never overwritten by Post/Unpost. Other rows are the payout ledger from "Post month to Commission-paid": <strong>SI Base</strong> = SI amount excl. tax (audit), <strong>Full</strong> = 100%-collection commission (frozen — drives cross-month top-ups), <strong>Commission</strong> = this month's payout, <strong>Paid%</strong> = this month's incremental %. A month's calc counts only EARLIER months' ledger rows as already-paid. Note is free-text.</div>`;
 
   el.innerHTML=
     sec('brk','Part 1 · 3rd Brokerage Fee',inpChip('brk',commBrokerage,'SO(s)')+brk,inpCountLbl('brk',commBrokerage,'SO(s)'))+
@@ -3788,6 +3924,10 @@ function collectInpTables(){
   document.querySelectorAll('#inp-body .inp-col').forEach(inp=>{const i=+inp.dataset.i,f=inp.dataset.f;if(commCollection[i])commCollection[i][f]=inp.value.trim();});
   document.querySelectorAll('#inp-body .inp-exm').forEach(inp=>{const i=+inp.dataset.i,f=inp.dataset.f;if(commExempt[i])commExempt[i][f]=inp.value.trim();});
   document.querySelectorAll('#inp-body .inp-paid').forEach(inp=>{const i=+inp.dataset.i,f=inp.dataset.f;if(commPaid[i])commPaid[i][f]=inp.value.trim();});
+  // China Projects Collection% edited from within Part 2 → write straight back to the
+  // shared cloudChinaProjects source (two-way sync with the China Projects module).
+  document.querySelectorAll('#inp-body .inp-cncol').forEach(inp=>{const ci=+inp.dataset.ci;if(cloudChinaProjects[ci]){const v=parseFloat(inp.value);cloudChinaProjects[ci].collProg=isNaN(v)?0:v;}});
+  document.querySelectorAll('#inp-body .inp-cnship').forEach(inp=>{const ci=+inp.dataset.ci;if(cloudChinaProjects[ci])cloudChinaProjects[ci].progress=inp.value.trim();});
 }
 async function toggleInpEdit(){
   if(!inpEdit){inpEdit=true;renderInputs();return;}
@@ -3803,6 +3943,7 @@ async function toggleInpEdit(){
     await gsSet('commCollection',commCollection);
     await gsSet('commExempt',commExempt);
     await gsSet('commPaid',commPaid);
+    await gsSet('chinaProjects',cloudChinaProjects);   // China Collection% edited from Part 2 → persist shared source
     setSyncStatus('ok','Inputs saved ✓ '+new Date().toLocaleTimeString());
   }catch(e){setSyncStatus('err','Save failed — check connection');}
 }
@@ -3815,17 +3956,33 @@ async function postCommissionPaid(){
   const {rows}=commEngine(M);
   const payRows=rows.filter(r=>Math.abs(r.pay)>=0.005);
   if(!payRows.length){alert('Nothing to post for '+M+'.');return;}
-  const isTyped=e=>!!String(e.type||'').trim();                    // typed = normal payout row; blank type = paid-out exclusion
+  const isTyped=isLedgerRow;                                        // normal payout row; 'Paid'/blank = settlement, never posted
   const existing=commPaid.filter(e=>e.month===M&&isTyped(e)).length;
   const later=[...new Set(commPaid.filter(e=>e.month>M&&isTyped(e)).map(e=>e.month))].sort();
   let cmsg=`Post ${payRows.length} payout row(s) for ${M} to Commission-paid?`;
   if(existing)cmsg+=`\n\nThis REPLACES the ${existing} existing ${M} row(s) in the ledger (manual edits for ${M} will be lost).`;
   if(later.length)cmsg+=`\n\n⚠ ${later.length} LATER month(s) are already posted: ${later.join(', ')}. Their payouts were topped up against ${M}'s current amounts — re-post them after this or their incremental amounts will be off.`;
   if(!confirm(cmsg)) return;
-  // Replace only this month's TYPED rows; blank-type paid-out exclusions are never touched.
-  commPaid=commPaid.filter(e=>e.month!==M||!isTyped(e)).concat(payRows.map(r=>({
-    month:M,so:r.so,si:r.si,type:r.type,amount:Math.round(r.pay*100)/100,name:r.person.name,note:''
-  })));
+  // Replace only this month's ledger rows; 'Paid'/blank settlement rows are never touched.
+  // Freeze SI Base + Full (100%-collection commission) so cross-month top-ups no longer
+  // depend on the SI file retaining history; store this month's Paid% and the owner
+  // (_empId/_branch) for later re-attribution when the SI leaves the file.
+  // Ledger precision: Full and SI Base keep their FULL real precision (never
+  // truncated to cents — Full is the load-bearing base for cross-month top-ups).
+  // toPrecision(15) strips only IEEE-754 float noise (e.g. 103.44500000000001 →
+  // 103.445) while preserving every real decimal, including China FE-rate values.
+  const cleanFloat=x=>{const v=parseFloat(x)||0;return v===0?0:Number(v.toPrecision(15));};
+  commPaid=commPaid.filter(e=>e.month!==M||!isTyped(e)).concat(payRows.map(r=>{
+    const full=cleanFloat(r.full);                                 // full real precision — load-bearing top-up base
+    const pct=full>0?Math.round((r.pay/full)*10000)/100:'';        // this month's incremental Paid% (display)
+    return {month:M,so:r.so,si:r.si,type:r.type,
+      siBase:cleanFloat(r.siAmt),                                  // full real precision — audit, matches the SI file value
+      full:full,
+      amount:Math.round(r.pay*100)/100,                            // this month's actual payout — kept to the cent
+      paidPct:pct,
+      name:r.person.name,note:'',
+      _empId:r.person.id||'',_branch:r.person.branch||''};
+  }));
   renderInputs();renderCommission();
   setSyncStatus('loading','Saving ledger…');
   try{await gsSet('commPaid',commPaid);setSyncStatus('ok','Ledger saved ✓ '+new Date().toLocaleTimeString());}
@@ -3837,7 +3994,7 @@ function updateUnpostBtn(){
   const btn=document.getElementById('comm-unpost-btn');
   const M=(document.getElementById('comm-month')||{}).value;
   if(btn){
-    const has=M&&M!=='—'&&commPaid.some(e=>e.month===M&&String(e.type||'').trim());
+    const has=M&&M!=='—'&&commPaid.some(e=>e.month===M&&isLedgerRow(e));
     btn.style.display=has?'':'none';
   }
   // Months before 2026-07 were paid outside this tool → posting is not allowed.
@@ -3855,7 +4012,7 @@ function updateUnpostBtn(){
 async function unpostCommissionPaid(){
   const M=(document.getElementById('comm-month')||{}).value;
   if(!M||M==='—'){alert('Select a month first.');return;}
-  const isTyped=e=>!!String(e.type||'').trim();                    // blank type = paid-out exclusion, never unposted
+  const isTyped=isLedgerRow;                                        // 'Paid'/blank = settlement, never unposted
   const n=commPaid.filter(e=>e.month===M&&isTyped(e)).length;
   if(!n){alert('Nothing posted for '+M+'.');return;}
   // Later months already posted depend on this month's payouts for their top-up calc.
@@ -3881,6 +4038,7 @@ function flagBadges(flags){
     if(f.startsWith('PENDING:'))return `<span class="badge amber" style="font-size:10px">${esc(f.slice(8))}</span>`;
     if(f==='MULTI-BM')return '<span class="bm-multi">⚠ shared branch</span>';
     if(f==='CN')return '<span class="badge blue" style="font-size:10px">China Proj</span>';
+    if(f==='TOPUP')return '<span class="badge amber" style="font-size:10px" title="Cross-month top-up paid from the frozen ledger — SI is no longer in the uploaded SI file">↩ top-up</span>';
     return '';
   }).join(' ');
 }
@@ -3906,7 +4064,7 @@ function renderStreamSection(rows,secTitle,keyPfx,reminders){
       return `<tr class="crow-detail spd-${k}" style="display:none">
         <td class="lft" style="padding-left:2.2rem"><span style="font-size:10px;color:#bbb">${esc(r.invMonth)}</span> <span class="mono">${esc(r.si)}</span></td>
         <td class="lft mono" style="color:#aaa">${esc(r.so)}</td>
-        <td>$${fmtAmt(r.base)}</td>
+        <td>$${fmtAmt(r.siAmt)}</td>
         <td>${r.fee?'$'+fmtAmt(r.fee):'—'}</td>
         <td class="mono" style="font-size:11px">${tier}</td>
         <td${neg}>$${fmtAmt(r.full)}</td>
@@ -3940,7 +4098,7 @@ function commDetailAOA(rows){
     'SI Base','Fee Alloc','Achv%','Rate%','Com Full','Coll%','Paid Before','This Month','Flags'];
   const body=rows.map(r=>[
     r.type, r.invMonth, r.si, r.so, r.person.id, r.person.name, r.person.branch||'',
-    round2(r.base), round2(r.fee),
+    round2(r.siAmt), round2(r.fee),
     r.tierInfo&&r.tierInfo.ratio!=null?+(r.tierInfo.ratio*100).toFixed(1):'',
     r.tierInfo&&r.tierInfo.rate!=null?+(r.tierInfo.rate*100).toFixed(4):'',
     round2(r.full), +(r.pct*100).toFixed(0), round2(r.before), round2(r.pay),
