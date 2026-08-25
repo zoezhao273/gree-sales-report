@@ -4035,7 +4035,7 @@ async function postCommissionPaid(){
     return {month:M,so:r.so,si:r.si,type:r.type,
       siBase:cleanFloat(r.siAmt),                                  // full real precision — audit, matches the SI file value
       full:full,
-      amount:Math.round(r.pay*100)/100,                            // this month's actual payout — kept to the cent
+      amount:cleanFloat(r.pay),                                    // full real precision — aligns with `full` so cross-month (full×pct − Σamount) is exact; disbursement rounds at the whole-MXN person subtotal, not here
       paidPct:pct,
       name:r.person.name,note:'',
       _empId:r.person.id||'',_branch:r.person.branch||''};
