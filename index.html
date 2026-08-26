@@ -165,7 +165,7 @@ tr.drag-over td{border-top:2px solid #378ADD}
 .ctable th{background:#f8f8f6;padding:7px 10px;font-size:11px;color:#888;font-weight:600;text-align:right;border-bottom:1px solid #e5e5e5;white-space:nowrap}
 .ctable th.lft,.ctable td.lft{text-align:left}
 .ctable td{padding:6px 10px;border-bottom:1px solid #f3f3f1;text-align:right}
-.ctable td.mono{font-family:ui-monospace,Menlo,monospace;font-size:12px}
+.ctable td.mono{font-family:ui-monospace,Menlo,monospace;font-size:12px;white-space:nowrap}
 .ctable tr.crow-total td{font-weight:700;background:#f8f8f6;border-top:2px solid #ddd}
 .ctable tr.crow-detail td{background:#fbfbfa;color:#777;font-size:11.5px;padding:4px 10px}
 .ctable .ri-c{width:90px;font-size:12px;padding:4px 7px;border:1px solid #ddd;border-radius:6px;text-align:right;font-family:inherit}
@@ -371,6 +371,23 @@ tr.drag-over td{border-top:2px solid #378ADD}
         <div id="excl-save-msg"></div>
       </div>
     </details>
+
+    <details id="fx-panel" style="margin-top:1rem;border:1px solid #e5e5e5;border-radius:12px;background:#fff" ontoggle="if(this.open)renderFxCurrency()">
+      <summary style="cursor:pointer;padding:0.9rem 1.25rem;font-size:14px;font-weight:600;list-style:none;display:flex;align-items:center;justify-content:space-between;gap:8px">
+        <span>🇲🇽 Mexico Orders · Foreign Currency <span class="badge amber" style="margin-left:4px;font-weight:500">Manual entry</span></span>
+        <span style="font-size:12px;color:#aaa;font-weight:400">click to expand</span>
+      </summary>
+      <div style="padding:0 1.25rem 1.25rem">
+        <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:1rem">
+          <div style="font-size:12px;color:#888;max-width:660px;line-height:1.4">Local Mexico ERP orders billed in a foreign currency. Their SI amounts are converted to MXN — <strong>SI Base (FC) = SI Base (OC) × FE Rate</strong> — for every amount-based figure (Sales Report, achievement, commission base, brokerage allocation) from <strong>Jul 2026</strong> onward. MXN rows are ×1; RAC per-set commission is unaffected. China Projects keep their own FE Rate and are not listed here.</div>
+          <button class="btn green" id="fx-save-btn" onclick="saveFxCurrency()">☁️ Save to Cloud</button>
+        </div>
+        <div id="fx-body"></div>
+        <button class="btn" id="fx-add-btn" style="width:100%;justify-content:center;margin:0.25rem 0 0" onclick="addFxRow()">➕ Add order</button>
+        <div id="fx-save-msg"></div>
+        <div style="margin-top:0.9rem;padding:0.7rem 0.9rem;background:#FEF9EE;border:1px solid #F3E2BD;border-radius:8px;font-size:12px;color:#8A5A00;line-height:1.5"><strong>FE Rate = DingTalk SO in MXN / SO in USD.</strong></div>
+      </div>
+    </details>
   </div>
 </div><!-- /view-sales -->
 
@@ -514,6 +531,33 @@ let cloudChinaProjects = [];
 // inner-use / sample orders that the SI file cannot flag on its own). Any SO No.
 // listed here is excluded regardless of SO Type. Array of {so,type,usage}.
 let cloudExclusions = [];
+// ── Foreign-currency (FC) support for local Mexico ERP orders ───────────────
+// commCurrency: [{so, currency:'MXN'|'USD', feRate}]. A local SI/ERP order billed in
+// USD carries an FE Rate so its SI amount converts to MXN (the functional currency):
+//   SI Base (FC) = SI Base (OC) × FE Rate
+// applied to EVERY amount-based figure from FC_CUTOVER onward — Sales Report amounts,
+// achievement, commission base, and brokerage allocation. RAC per-set commission
+// (qty × MXN rate) is currency-agnostic and is NOT converted. China Projects carry
+// their own FE Rate on cloudChinaProjects and are handled separately (not listed here).
+let commCurrency = [];
+const CUR_OPTS=['MXN','USD'];
+const FC_CUTOVER='2026-07';   // FC applies to invoice months ≥ this; earlier months stay original-currency (their frozen values are untouched)
+function fxRow(so){return (commCurrency||[]).find(x=>String(x.so||'').trim()===String(so||'').trim());}
+// MXN conversion multiplier — best-effort, never throws. MXN / unlisted / pre-cutover → 1.
+// A USD row with a usable rate → that rate; a USD row with a blank/1/≤0 rate → 1 here
+// (so the Sales Report still shows something), while fxBad() flags it so the commission
+// engine holds that order's amount-based payout until the rate is filled in.
+function fxRate(so, invMonth){
+  if(!invMonth || String(invMonth) < FC_CUTOVER) return 1;
+  const e=fxRow(so); if(!e || (e.currency||'MXN')==='MXN') return 1;
+  const r=parseFloat(e.feRate); return (isFinite(r) && r>0) ? r : 1;
+}
+// true = a non-MXN order at/after cutover whose FE Rate is unusable (blank, ≤0, or exactly 1).
+function fxBad(so, invMonth){
+  if(!invMonth || String(invMonth) < FC_CUTOVER) return false;
+  const e=fxRow(so); if(!e || (e.currency||'MXN')==='MXN') return false;
+  const r=parseFloat(e.feRate); return !(isFinite(r) && r>0 && r!==1);
+}
 let chinaReadonly = true;   // default open: read-only (all MXN). false = edit (original currency)
 // SI (Sales Invoice) model — single flat file, one sheet per month.
 // salesData / detailData are kept as truthy "loaded" flags (both point at the
@@ -698,6 +742,7 @@ async function loadFromCloud(){
     if(data.commBrokerage && Array.isArray(data.commBrokerage)) commBrokerage = data.commBrokerage;
     if(data.commCollection && Array.isArray(data.commCollection)) commCollection = data.commCollection;
     if(data.commExempt && Array.isArray(data.commExempt)) commExempt = data.commExempt;
+    if(data.commCurrency && Array.isArray(data.commCurrency)) commCurrency = data.commCurrency;
     // Commission-paid: prefer per-month shards ('commPaid_YYYY-MM'); fall back to
     // the legacy single 'commPaid' cell only until the first migration writes the
     // shards. The legacy cell is left intact as a read-only fallback for any old tab.
@@ -1364,9 +1409,10 @@ function computeP(month,bn,excDel,excLS,excNE){
     const own=ownerOf(r.empId,r.empName);
     if(!own||own.branch!==bn)return;
     const pr=prog[own.p.id];if(!pr)return;
-    if(r.line==='RAC'){pr.RAC+=r.qty;pr.RAC_amt+=r.amt;}
-    else if(r.line==='LAC'){pr.LAC_qty+=r.qty;pr.LAC+=r.amt;}
-    else if(r.line==='CAC'){pr.CAC_qty+=r.qty;pr.CAC+=r.amt;}
+    const _fx=fxRate(r.so,r.invMonth);                 // FC: local USD orders → MXN from cutover; MXN/pre-cutover → 1
+    if(r.line==='RAC'){pr.RAC+=r.qty;pr.RAC_amt+=r.amt*_fx;}
+    else if(r.line==='LAC'){pr.LAC_qty+=r.qty;pr.LAC+=r.amt*_fx;}
+    else if(r.line==='CAC'){pr.CAC_qty+=r.qty;pr.CAC+=r.amt*_fx;}
   });
 
   // ── Orders & customers: by the SO's FIRST (earliest) month ──
@@ -2637,6 +2683,80 @@ async function saveExclusions(){
   }
 }
 
+// ── Mexico Orders · Foreign Currency panel (Sales Report, under Exclusions) ──
+function renderFxCurrency(){
+  const el=document.getElementById('fx-body');if(!el)return;
+  const invSO=(typeof siRows!=='undefined'&&siRows&&siRows.length)?commInvoiceSOSet():null;
+  const siSet=siRows?new Set(siRows.map(r=>String(r.so||'').trim())):null;
+  if(!commCurrency.length){
+    el.innerHTML='<div class="empty">🇲🇽 No foreign-currency orders yet. Click "➕ Add order" to record a USD Mexico order and its FE Rate.</div>';
+    return;
+  }
+  let rows='';
+  commCurrency.forEach((e,i)=>{
+    const so=String(e.so==null?'':e.so).trim();
+    const cur=CUR_OPTS.includes(e.currency)?e.currency:'MXN';
+    const isMXN=cur==='MXN';
+    const feVal=(e.feRate==null||e.feRate==='')?'':e.feRate;
+    const badFE=!isMXN && !(parseFloat(feVal)>0 && parseFloat(feVal)!==1);
+    const missing=(so && siSet && !siSet.has(so))
+      ? `<span title="Not in the currently-loaded SI file — no effect until that SO appears." style="color:#BA7517;margin-left:5px;font-size:11px">not in current SI</span>` : '';
+    const feCell=isMXN
+      ? `<input class="ri num" type="number" value="1" disabled style="min-width:80px;color:#bbb;background:#f7f7f5">`
+      : `<input class="ri num" type="number" step="0.0001" value="${esc(String(feVal))}" placeholder="rate" style="min-width:80px${badFE?';border-color:#E0A100;background:#FFFBEF':''}" onchange="fxSet(${i},'feRate',this.value)">`;
+    const badge=badFE?`<span title="A USD order needs a real FE Rate (not blank, not 1). Amount-based commission is held until it is filled." style="color:#B45309;margin-left:6px;font-size:11px">⚠ FE rate needed</span>`:'';
+    rows+=`<tr>
+      <td class="num" style="color:#aaa;width:34px">${i+1}</td>
+      <td class="mono" style="min-width:150px"><input class="ri" type="text" value="${esc(e.so||'')}" placeholder="SO No." style="min-width:150px" onchange="fxSetSO(${i},this.value)" onblur="fxBlurSO(${i},this.value)">${missing}</td>
+      <td style="min-width:100px"><select onchange="fxSetCur(${i},this.value)" style="font-size:12px;padding:5px 6px;width:100%">${CUR_OPTS.map(o=>`<option value="${o}"${o===cur?' selected':''}>${o}</option>`).join('')}</select></td>
+      <td style="min-width:110px">${feCell}${badge}</td>
+      ${inpMatchTd(invSO,so)}
+      <td style="width:34px"><button class="delbtn" onclick="delFxRow(${i})">🗑</button></td>
+    </tr>`;
+  });
+  el.innerHTML=`<table class="ctable" style="max-width:660px"><thead><tr><th style="width:34px"></th><th class="lft">SO No.</th><th style="width:110px">Currency</th><th style="width:130px">FE Rate</th><th class="lft" style="white-space:nowrap">SI Match Status</th><th style="width:34px"></th></tr></thead><tbody>${rows}</tbody></table>`;
+}
+function addFxRow(){
+  commCurrency.push({so:'',currency:'MXN',feRate:1});
+  renderFxCurrency();
+  setTimeout(()=>{const b=document.getElementById('fx-add-btn');if(b)b.scrollIntoView({behavior:'smooth',block:'center'});},40);
+}
+function delFxRow(i){
+  const e=commCurrency[i];
+  if(!confirm(`Delete "${(e&&e.so)||'#'+(i+1)}"?`))return;
+  commCurrency.splice(i,1);renderFxCurrency();
+}
+function fxSet(i,f,v){if(commCurrency[i])commCurrency[i][f]=(f==='feRate')?(v===''?'':v):v;}
+function fxSetSO(i,v){if(commCurrency[i])commCurrency[i].so=String(v).trim();}
+function fxSetCur(i,v){if(commCurrency[i]){commCurrency[i].currency=v;if(v==='MXN')commCurrency[i].feRate=1;}renderFxCurrency();}
+// Empty SO No. on blur → auto-remove the row (only when left blank on exit).
+function fxBlurSO(i,v){
+  if(!commCurrency[i])return;
+  if(String(v).trim()===''){commCurrency.splice(i,1);renderFxCurrency();}
+  else renderFxCurrency();   // refresh the "not in current SI" hint
+}
+async function saveFxCurrency(){
+  commCurrency=commCurrency.filter(e=>String(e&&e.so!=null?e.so:'').trim()!=='');
+  renderFxCurrency();
+  const btn=document.getElementById('fx-save-btn');const orig=btn.innerHTML;
+  btn.disabled=true;btn.innerHTML='<span class="spinner"></span> Saving…';
+  setSyncStatus('loading','Saving to Google Sheets…');
+  try{
+    await gsSet('commCurrency', commCurrency);
+    setSyncStatus('ok','Saved ✓  '+new Date().toLocaleTimeString());
+    const msg=document.getElementById('fx-save-msg');
+    msg.innerHTML=`<div class="save-ok">✅ Saved ${commCurrency.length} foreign-currency order(s) to Google Sheets</div>`;
+    setTimeout(()=>msg.innerHTML='',4000);
+    if(document.getElementById('tab-report').style.display!=='none') renderReport();
+    if(typeof renderCommission==='function') renderCommission();
+  }catch(e){
+    setSyncStatus('err','Save failed — check connection');
+    alert('Save failed: '+e.message+'\n\nMake sure the Apps Script was re-deployed.');
+  }finally{
+    btn.disabled=false;btn.innerHTML=orig;
+  }
+}
+
 // ═══════════════════════════════════════════════════════════════
 // Commission module (monthly · RAC rules) — view switch, rule
 // tables (cloud-synced, read-only by default), calculation & audit.
@@ -3308,8 +3428,10 @@ function buildInvoiceIndex(){
     const key=(r.inv||r.so)+'::'+r.invMonth;                // same code re-used across months stays split
     if(!map[key])map[key]={si:r.inv||r.so,so:r.so,m:r.invMonth,empId:r.empId,empName:r.empName,dept:r.dept,racAmt:0,lcacAmt:0,racSets:{}};
     const iv=map[key];
-    if(r.line==='RAC'){iv.racAmt+=r.amt;iv.racSets[r.itemCode]=(iv.racSets[r.itemCode]||0)+r.qty;}
-    else if(r.line==='LAC'||r.line==='CAC'){iv.lcacAmt+=r.amt;}
+    const _fx=fxRate(r.so,r.invMonth);                 // convert SI amount to MXN (FC) before it feeds base + brokerage allocation
+    if(fxBad(r.so,r.invMonth))iv.fxBad=true;           // USD order missing a usable FE Rate → hold amount-based streams (PENDING)
+    if(r.line==='RAC'){iv.racAmt+=r.amt*_fx;iv.racSets[r.itemCode]=(iv.racSets[r.itemCode]||0)+r.qty;}
+    else if(r.line==='LAC'||r.line==='CAC'){iv.lcacAmt+=r.amt*_fx;}
   });
   return Object.values(map);
 }
@@ -3352,7 +3474,10 @@ function commEngine(M){
     handled.add(fk);                                                 // this (Type::SI) is covered by the file/China path
     if(fk in frozenFull)full=frozenFull[fk];                         // frozen Full is authoritative once posted (rate/base locked to first month)
     let pay;
-    if(full<0){                                                       // fee exceeds gross commission → floor to 0 (封零)
+    if(iv.fxBad && type!=='RAC-SP'){                                  // USD order without a usable FE Rate → hold amount-based payout (RAC-SP is qty-based, unaffected)
+      full=0;pay=0;const _cur=(fxRow(iv.so)||{}).currency||'FC';
+      flags=[...flags,'PENDING:'+_cur+' FE rate missing — set it in Mexico Orders · Foreign Currency'];
+    }else if(full<0){                                                 // fee exceeds gross commission → floor to 0 (封零)
       pay=0;flags=[...flags,'NEGFULL:'+(-full).toFixed(2)];
     }else{
       const raw=full*pct-before;
@@ -3741,8 +3866,21 @@ function commInvoiceSOSet(){
 // include this SO, i.e. the special case doesn't apply here.
 function inpMatchTd(invSO,so){
   const s=String(so||'').trim();
-  if(invSO&&s&&invSO.has(s))
-    return '<td class="lft" style="color:#2a7d55;font-size:11px;white-space:nowrap">Matched to SI file</td>';
+  if(invSO&&s&&invSO.has(s)){
+    // Which month('s SI sheet) this SO's invoices come from. invMonth is
+    // 'YYYY-MM' derived from the sheet name (monthFromSheet, e.g. "August 2026"
+    // → "2026-08"). A SO may span >1 month sheet → list all, e.g. "202607, 202608".
+    let months=[];
+    if(typeof siRows!=='undefined'&&siRows){
+      const set=new Set();
+      siRows.forEach(r=>{if(String(r.so||'').trim()===s&&r.invMonth)set.add(r.invMonth);});
+      months=[...set].sort();
+    }
+    const label=months.length
+      ? 'Matched to '+months.map(m=>m.replace('-','')).join(', ')+' SI file'
+      : 'Matched to SI file';   // matched only via a China project (no SI month) → keep generic
+    return '<td class="lft" style="color:#2a7d55;font-size:11px;white-space:nowrap">'+label+'</td>';
+  }
   return '<td></td>';
 }
 // Popover
@@ -3833,7 +3971,7 @@ function renderInputs(){
        <td style="width:34px"><button class="delbtn" onclick="collectInpTables();commBrokerage.splice(${i},1);renderInputs()">🗑</button></td></tr>`
     :`<tr ondragover="inpRowOver('brk',event)" ondrop="inpRowDrop('brk',${i})"${inpHide('brk',r)}>${inpDragTd('brk',i)}<td class="lft mono">${esc(r.so||'')}</td><td>$${fmtAmt(parseFloat(r.fee)||0)}</td>${inpMatchTd(invSO,r.so)}</tr>`).join('');
   const brkAdd=inpEdit?`<tr><td colspan="3" style="text-align:left;padding-top:8px"><button class="btn sm" onclick="collectInpTables();commBrokerage.push({so:'',fee:''});renderInputs()">+ Add SO</button></td></tr>`:'';
-  const brk=`<table class="ctable" style="max-width:520px"><thead><tr>${inpEdit?'':'<th style="width:22px"></th>'}<th class="lft">SO No.${inpFHdr('brk','so')}</th><th style="width:180px">3rd Brokerage fee (MXN, Excl. IVA)${inpFHdr('brk','fee')}</th>${inpEdit?'<th></th>':'<th style="width:44px" title="Whether this SO matches an invoice in the loaded SI file">SI</th>'}</tr></thead><tbody>${brkRows||''}${brkAdd}</tbody></table>
+  const brk=`<table class="ctable" style="max-width:520px"><thead><tr>${inpEdit?'':'<th style="width:22px"></th>'}<th class="lft">SO No.${inpFHdr('brk','so')}</th><th style="width:180px">3rd Brokerage fee (MXN, Excl. IVA)${inpFHdr('brk','fee')}</th>${inpEdit?'<th></th>':'<th class="lft" style="white-space:nowrap" title="Whether this SO matches an invoice in the loaded SI file, and which month sheet(s) it came from">SI Match Status</th>'}</tr></thead><tbody>${brkRows||''}${brkAdd}</tbody></table>
     <div class="fn" style="margin-top:6px">SOs not listed → fee 0. Fee is allocated to each invoice by (invoice product-line amount ÷ SO RAC+LAC+CAC total from the Sales Order Report). Drag ⠿ to reorder rows.</div>`;
 
   // Part 2 · Collection Progress (+ Shipping Progress label, informational only)
@@ -3844,7 +3982,7 @@ function renderInputs(){
        <td style="width:34px"><button class="delbtn" onclick="collectInpTables();commCollection.splice(${i},1);renderInputs()">🗑</button></td></tr>`
     :`<tr ondragover="inpRowOver('col',event)" ondrop="inpRowDrop('col',${i})"${inpHide('col',r)}>${inpDragTd('col',i)}<td class="lft mono">${esc(r.so||'')}</td><td>${(parseFloat(r.pct)||0)}%</td><td>${esc(r.ship||'—')}</td>${inpMatchTd(invSO,r.so)}</tr>`;};
   const colAdd=inpEdit?`<tr><td colspan="4" style="text-align:left;padding-top:8px"><button class="btn sm" onclick="collectInpTables();commCollection.push({so:'',pct:'',ship:''});renderInputs()">+ Add SO</button></td></tr>`:'';
-  const colHead=`<thead><tr>${inpEdit?'':'<th style="width:22px"></th>'}<th class="lft">SO No.${inpFHdr('col','so')}</th><th style="width:150px">Collection Progress (%)${inpFHdr('col','pct')}</th><th style="width:140px">Shipping Progress${inpFHdr('col','ship')}</th>${inpEdit?'<th></th>':'<th style="width:44px" title="Whether this SO matches an invoice in the loaded SI file">SI</th>'}</tr></thead>`;
+  const colHead=`<thead><tr>${inpEdit?'':'<th style="width:22px"></th>'}<th class="lft">SO No.${inpFHdr('col','so')}</th><th style="width:150px">Collection Progress (%)${inpFHdr('col','pct')}</th><th style="width:140px">Shipping Progress${inpFHdr('col','ship')}</th>${inpEdit?'<th></th>':'<th class="lft" style="white-space:nowrap" title="Whether this SO matches an invoice in the loaded SI file, and which month sheet(s) it came from">SI Match Status</th>'}</tr></thead>`;
   const colFoot=`<div class="fn" style="margin-top:6px">SOs not listed → 100% collection. Enter cumulative progress as of month-end; payouts top up incrementally as it rises. <strong>Shipping Progress is a status label only</strong> — it does not affect any calculation. Rows tagged <span class="badge blue" style="font-size:9px">China Project</span> are pulled from the China Projects module <strong>only when they were not fully collected from the start</strong> — editing their Collection% and Shipping here <strong>syncs both ways</strong>; at 100% they move to the folded group. Projects that have always been 100% are not shown. Drag ⠿ to reorder rows.</div>`;
   const isDoneCol=r=>parseFloat(r.pct)>=100;
   // China Projects joined into Part 2. Same single source (cloudChinaProjects) as the
@@ -3900,7 +4038,7 @@ function renderInputs(){
        <td style="width:34px"><button class="delbtn" onclick="collectInpTables();commExempt.splice(${i},1);renderInputs()">🗑</button></td></tr>`
     :`<tr ondragover="inpRowOver('exm',event)" ondrop="inpRowDrop('exm',${i})"${inpHide('exm',r)}>${inpDragTd('exm',i)}<td class="lft mono">${esc(r.so||'')}</td><td class="lft">${esc(r.reason||'')}</td>${inpMatchTd(invSO,r.so)}</tr>`).join('');
   const exmAdd=inpEdit?`<tr><td colspan="3" style="text-align:left;padding-top:8px"><button class="btn sm" onclick="collectInpTables();commExempt.push({so:'',reason:''});renderInputs()">+ Add SO</button></td></tr>`:'';
-  const exm=`<table class="ctable" style="max-width:600px"><thead><tr>${inpEdit?'':'<th style="width:22px"></th>'}<th class="lft" style="width:180px">SO No.${inpFHdr('exm','so')}</th><th class="lft">Exemption Reason${inpFHdr('exm','reason')}</th>${inpEdit?'<th></th>':'<th style="width:44px" title="Whether this SO matches an invoice in the loaded SI file">SI</th>'}</tr></thead><tbody>${exmRows||''}${exmAdd}</tbody></table>
+  const exm=`<table class="ctable" style="max-width:600px"><thead><tr>${inpEdit?'':'<th style="width:22px"></th>'}<th class="lft" style="width:180px">SO No.${inpFHdr('exm','so')}</th><th class="lft">Exemption Reason${inpFHdr('exm','reason')}</th>${inpEdit?'<th></th>':'<th class="lft" style="white-space:nowrap" title="Whether this SO matches an invoice in the loaded SI file, and which month sheet(s) it came from">SI Match Status</th>'}</tr></thead><tbody>${exmRows||''}${exmAdd}</tbody></table>
     <div class="fn" style="margin-top:6px">Listed SOs are dropped from <strong>all</strong> commission calculations (every stream, salesperson &amp; BM) — e.g. loss-making orders with no margin to pay commission from. Applies to SI invoices and China projects that share the SO No. Drag ⠿ to reorder rows.</div>`;
 
   // Part 4 · Commission-paid (ledger) — grouped by month, each month collapsed by default.
