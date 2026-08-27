@@ -4320,7 +4320,21 @@ function commSummaryAOA(rows){
 function siBaseAOA(rawRows){
   if(!rawRows||!rawRows.length)return [['(no invoice rows for this month)']];
   const cols=Object.keys(rawRows[0]);
-  return [cols,...rawRows.map(r=>cols.map(c=>r[c]))];
+  // Audit view: keep EVERY raw row, but flag the ones the Sales Report & commission
+  // drop via the Exclusions table (matched by SO No.). Leading 'Excluded' column so
+  // the reason is visible at a glance; a footer tallies how many rows/units were held out.
+  const exclSO=buildExclSet();
+  const reason={};(cloudExclusions||[]).forEach(e=>{const so=String(e&&e.so!=null?e.so:'').trim();if(so)reason[so]=[e.type,e.usage].map(x=>String(x||'').trim()).filter(Boolean).join(' · ');});
+  let exRows=0,exUnits=0;
+  const body=rawRows.map(r=>{
+    const so=String(r['SO Number']!=null?r['SO Number']:'').trim();
+    const ex=exclSO.has(so);
+    if(ex){exRows++;exUnits+=Number(r['Quantity'])||0;}
+    return [ex?('EXCLUDED'+(reason[so]?' · '+reason[so]:'')):'',...cols.map(c=>r[c])];
+  });
+  const aoa=[['Excluded',...cols],...body];
+  if(exRows){aoa.push([]);aoa.push([`Note: rows marked EXCLUDED are dropped from the Sales Report and commission (per the Exclusions table). ${exRows} row(s), ${exUnits} unit(s) excluded — kept here for audit.`]);}
+  return aoa;
 }
 function round2(v){return Math.round((Number(v)||0)*100)/100;}
 function safeSheetName(s){return String(s||'Sheet').replace(/[\\\/\?\*\[\]:]/g,' ').slice(0,31)||'Sheet';}
