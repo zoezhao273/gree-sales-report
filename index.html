@@ -186,6 +186,7 @@ tr.drag-over td{border-top:2px solid #378ADD}
   <div class="brand">GREE Mexico</div>
   <button class="nav-item active" id="nav-sales" onclick="switchView('sales')">📊 <span>Sales Report</span></button>
   <button class="nav-item" id="nav-commission" onclick="switchView('commission')">💰 <span>Commission</span></button>
+  <button class="nav-item" id="nav-installer" onclick="switchView('installer')">🔧 <span>Installer Incentive</span></button>
   <div class="nav-hint">Sales Report updates daily.<br>Commission runs once a month.</div>
 </nav>
 <div class="mainarea">
@@ -484,6 +485,102 @@ tr.drag-over td{border-top:2px solid #378ADD}
   </div>
   </div><!-- /cpane-inp -->
 </div><!-- /view-commission -->
+<!-- ══ Installer Incentive view ═══════════════════════════════════ -->
+<style>
+#view-installer .filters .ri-c{height:34px;box-sizing:border-box;padding:6px 8px;font-size:12.5px;border:1px solid #ddd;border-radius:6px;font-family:inherit;background:#fff;text-align:left}
+#view-installer .filters select.ri-c{padding-right:4px}
+.inst-combo{position:relative}
+.inst-drop{position:absolute;z-index:40;left:0;right:0;top:100%;background:#fff;border:1px solid #ddd;border-radius:8px;box-shadow:0 6px 20px rgba(0,0,0,.12);max-height:240px;overflow:auto;display:none;margin-top:2px}
+.inst-opt{padding:6px 10px;font-size:12.5px;cursor:pointer;white-space:nowrap;text-align:left}
+.inst-opt:hover{background:#f2f6ff}
+.inst-opt.muted{color:#aaa;cursor:default}
+.inst-det{border:1px solid #eee;border-radius:8px;margin:6px 0;background:#fff}
+.inst-det-1>summary{background:#f6f8fb;font-weight:600}
+.inst-det-2{margin-left:14px}
+.inst-det-3{margin-left:14px}
+.inst-det>summary{list-style:none;cursor:pointer;padding:8px 12px;display:flex;justify-content:space-between;align-items:center;gap:10px;font-size:13px}
+.inst-det>summary::-webkit-details-marker{display:none}
+.inst-det>summary::before{content:'▸';color:#999;margin-right:6px;transition:.15s;display:inline-block}
+.inst-det[open]>summary::before{transform:rotate(90deg)}
+.inst-sum-t{flex:1;text-align:left}
+.inst-sum-a{font-variant-numeric:tabular-nums;color:#185FA5;font-weight:600;white-space:nowrap}
+.inst-det table.ctable{margin-left:6px}
+</style>
+<div class="wrap" id="view-installer" style="display:none">
+  <div class="header">
+    <div>
+      <div class="title">🔧 Installer Incentive</div>
+      <div class="subtitle">GREE Mexico · Installer set-installation incentives</div>
+    </div>
+    <div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px">
+      <div id="inst-sync-status" class="sync-status loading"><span class="spinner"></span> Connecting…</div>
+    </div>
+  </div>
+
+  <div class="tabs" style="margin-bottom:1.25rem">
+    <button class="tab active" id="itab-reimb" onclick="switchInstTab('reimb')">Reimbursements</button>
+    <button class="tab" id="itab-summary" onclick="switchInstTab('summary')">Summary &amp; Installers</button>
+    <button class="tab" id="itab-policy" onclick="switchInstTab('policy')">Incentive Policy</button>
+  </div>
+
+  <!-- Module 1 -->
+  <div id="ipane-reimb">
+    <div class="card">
+      <div class="card-head"><div class="card-title">➕ New Reimbursement <span class="badge blue" style="margin-left:4px">one reimbursement</span></div>
+        <div class="card-sub">Reimbursement No. determines the month (auto). One reimbursement can include multiple installers and items. Submit pushes it to the records below.</div></div>
+      <div id="inst-entry-body"></div>
+    </div>
+    <div class="card" style="margin-top:1.25rem">
+      <div class="card-head"><div class="card-title">📚 Reimbursement Records <span class="badge green" style="margin-left:4px">Cloud</span></div>
+        <div class="card-sub">Use “Revoke” on a reimbursement to send it back to the entry form for editing.</div></div>
+      <div class="filters" style="margin:6px 0 14px">
+        <div class="fg"><div class="fl">Month</div><input class="ri-c" style="width:120px;text-align:left" placeholder="2026-08" oninput="instSetFilter('month',this.value)"></div>
+        <div class="fg"><div class="fl">Reimbursement No.</div><input class="ri-c" style="width:150px;text-align:left" placeholder="003" oninput="instSetFilter('reimb',this.value)"></div>
+        <div class="fg"><div class="fl">Installer</div><input class="ri-c" style="width:170px;text-align:left" placeholder="Code / Name" oninput="instSetFilter('inst',this.value)"></div>
+        <div class="fg"><div class="fl">Item</div><input class="ri-c" style="width:170px;text-align:left" placeholder="Code / Name" oninput="instSetFilter('item',this.value)"></div>
+      </div>
+      <div id="inst-records-body"><div class="empty">📋 No records</div></div>
+    </div>
+  </div>
+
+  <!-- Module 3 (now 2nd tab): Summary on top, Installers collapsible below -->
+  <div id="ipane-summary" style="display:none">
+    <div class="card">
+      <div class="card-head" style="display:flex;justify-content:space-between;align-items:center;gap:12px">
+        <div><div class="card-title">📊 Incentive Summary</div><div class="card-sub">Monthly cumulative incentive per installer. Months over $2,000 MXN are highlighted with a reminder below.</div></div>
+        <div style="display:flex;gap:10px;align-items:flex-end">
+          <div class="fg"><div class="fl">Year</div><select id="inst-year" onchange="instSetYear(this.value)"></select></div>
+          <button class="btn" onclick="instExportCrossings()">📊 Export over-threshold list</button>
+        </div>
+      </div>
+      <div id="inst-summary-body"></div>
+    </div>
+    <details class="inst-det inst-det-1" id="inst-list-card" style="margin-top:1.25rem">
+      <summary><span class="inst-sum-t">👷 Installers</span><span class="inst-sum-a"></span></summary>
+      <div style="padding:12px 14px">
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:6px">
+          <div class="card-sub">New installers default to 0 each month.</div>
+          <button class="btn blue" id="inst-list-btn" onclick="instToggleListEdit()">✏️ Edit</button>
+        </div>
+        <div class="filters" id="inst-list-filter" style="margin:6px 0 4px"></div>
+        <div id="inst-list-body"></div>
+      </div>
+    </details>
+  </div>
+
+  <!-- Module 2 (now 3rd tab) -->
+  <div id="ipane-policy" style="display:none">
+    <div class="card">
+      <div class="card-head" style="display:flex;justify-content:space-between;align-items:center">
+        <div><div class="card-title">📋 Incentive Policy</div></div>
+        <button class="btn blue" id="inst-pol-btn" onclick="instTogglePolEdit()">✏️ Edit</button>
+      </div>
+      <div class="filters" id="inst-pol-filter" style="margin:6px 0 4px"></div>
+      <div id="inst-policy-body"></div>
+    </div>
+  </div>
+</div><!-- /view-installer -->
+
 </div><!-- /mainarea -->
 </div><!-- /appshell -->
 
@@ -710,7 +807,7 @@ async function gsSet(key, value){
 
 function setSyncStatus(state, msg){
   const icon = state==='loading' ? `<span class="spinner"></span>` : state==='ok' ? '☁️' : '⚠️';
-  ['sync-status','comm-sync-status'].forEach(id=>{
+  ['sync-status','comm-sync-status','inst-sync-status'].forEach(id=>{
     const el = document.getElementById(id);
     if(!el) return;
     el.className = 'sync-status ' + state;
@@ -758,6 +855,10 @@ async function loadFromCloud(){
     } else {
       await persistCommPaid({force:true});   // migrate legacy single cell → per-month shards
     }
+    if(data.installerPolicy && Array.isArray(data.installerPolicy) && data.installerPolicy.length) instPolicy = data.installerPolicy;
+    if(data.installerList && Array.isArray(data.installerList)) instList = data.installerList;
+    instRecords = mergeInstShards(data);
+    _instSig = {}; { const _g=groupInstByMonth(instRecords); Object.keys(_g).forEach(k=>_instSig[k]=JSON.stringify(_g[k])); }
     setSyncStatus('ok', 'Cloud sync OK');
     // Auto-set target month selector to the latest month that has roster data
     const rosterMonths=Object.keys(cloudRosters).sort().reverse();
@@ -772,6 +873,7 @@ async function loadFromCloud(){
     if(document.getElementById('tab-report').style.display !== 'none') renderReport();
     if(document.getElementById('tab-china').style.display !== 'none') renderChina();
     if(document.getElementById('view-commission').style.display !== 'none') renderCommission();
+    if(document.getElementById('view-installer') && document.getElementById('view-installer').style.display !== 'none') renderInstaller();
   }catch(e){
     setSyncStatus('err', 'Cloud unavailable — offline mode');
     console.warn('Cloud load failed:', e);
@@ -2769,9 +2871,12 @@ async function saveFxCurrency(){
 function switchView(v){
   document.getElementById('view-sales').style.display = v==='sales'?'':'none';
   document.getElementById('view-commission').style.display = v==='commission'?'':'none';
+  document.getElementById('view-installer').style.display = v==='installer'?'':'none';
   document.getElementById('nav-sales').classList.toggle('active', v==='sales');
   document.getElementById('nav-commission').classList.toggle('active', v==='commission');
+  document.getElementById('nav-installer').classList.toggle('active', v==='installer');
   if(v==='commission'){populateCommMonths();renderCommission();}
+  if(v==='installer'){renderInstaller();}
 }
 function toggleCommCard(id){document.getElementById(id).classList.toggle('collapsed');}
 let commTab='rac';
@@ -4572,6 +4677,477 @@ function renderCommission(){
 }
 
 // Init
+// ===== Installer Incentive module (injected) =====
+const DEF_INST_LIST=[
+ {code:"S-MX-00028",name:"TECNICLIMASY"},
+ {code:"S-MX-00032",name:"DANY RIVERA BUENROSTRO"},
+ {code:"S-MX-00391",name:"JOSE ANDRÉS PADILLA BECERRA"},
+ {code:"S-MX-00392",name:"WILLIAM GASPAR MADERA CHABLE"},
+ {code:"S-MX-00393",name:"FRANCISCO SANTIAGO CHAVOLLA"},
+ {code:"S-MX-00394",name:"MARIO JOSUE LOPEZ VELAZQUEZ"},
+ {code:"S-MX-00395",name:"ANGEL RAÚL POOL QUIÑONES"},
+ {code:"S-MX-00403",name:"JONATHAN YAEL CELIS AVILA"},
+ {code:"S-MX-00413",name:"CRISTIAN AARON CASANOVA TRUJEQUE"}
+];
+
+const DEF_INST_POLICY=[
+ {code:"MXR0001",model:"GWC24ATDXD-D3NNA1A",inv:"On/Off",cap:"2 Ton",rate:200},
+ {code:"MXR0002",model:"GWC36ATEXH-D3NNA1A",inv:"On/Off",cap:"3 Ton",rate:340},
+ {code:"MXR0003",model:"GWC36ATEXF-S3DNA1X",inv:"Inverter",cap:"3 Ton",rate:360},
+ {code:"MXR0004",model:"GWC12ATBXB-A3DNA1X",inv:"Inverter",cap:"1 Ton",rate:120},
+ {code:"MXR0005",model:"GWH24ATDXD-D3NNA1A",inv:"On/Off",cap:"2 Ton",rate:200},
+ {code:"MXR0006",model:"GWH12ATBXB-A3DNA1X",inv:"Inverter",cap:"1 Ton",rate:120},
+ {code:"MXR0007",model:"GWH12ATBXA-D3DNA1X",inv:"Inverter",cap:"1 Ton",rate:120},
+ {code:"MXR0008",model:"GWH24ATDXE-S3DNA1X",inv:"Inverter",cap:"2 Ton",rate:220},
+ {code:"MXR0009",model:"GWH36ATEXH-D3DNA1X",inv:"Inverter",cap:"3 Ton",rate:360},
+ {code:"MXR0010",model:"GWC-12CHARMO",inv:"On/Off",cap:"1 Ton",rate:100},
+ {code:"MXR0011",model:"GWH-12CHARMO",inv:"On/Off",cap:"1 Ton",rate:100},
+ {code:"MXR0012",model:"GWC-18CHARMO",inv:"On/Off",cap:"1.5 Ton",rate:150},
+ {code:"MXR0013",model:"GWH-18CHARMO",inv:"On/Off",cap:"1.5 Ton",rate:150},
+ {code:"MXR0014",model:"GWC-24CHARMO",inv:"On/Off",cap:"2 Ton",rate:200},
+ {code:"MXR0015",model:"GWH-24CHARMO",inv:"On/Off",cap:"2 Ton",rate:200},
+ {code:"MXR0016",model:"GWC-36CHARMO",inv:"On/Off",cap:"3 Ton",rate:340},
+ {code:"MXR0017",model:"GWH-36CHARMO",inv:"On/Off",cap:"3 Ton",rate:340},
+ {code:"MXR0018",model:"GWCB-12CHARMOBT",inv:"Inverter",cap:"1 Ton",rate:120},
+ {code:"MXR0019",model:"GWHB-12CHARMOBT",inv:"Inverter",cap:"1 Ton",rate:120},
+ {code:"MXR0020",model:"GWCB-12CHARMO",inv:"Inverter",cap:"1 Ton",rate:120},
+ {code:"MXR0021",model:"GWHB-12CHARMO",inv:"Inverter",cap:"1 Ton",rate:120},
+ {code:"MXR0022",model:"GWCB-18CHARMO",inv:"Inverter",cap:"1.5 Ton",rate:160},
+ {code:"MXR0023",model:"GWHB-18CHARMO",inv:"Inverter",cap:"1.5 Ton",rate:160},
+ {code:"MXR0024",model:"GWCB-12COSMOBT",inv:"Inverter",cap:"1 Ton",rate:120},
+ {code:"MXR0025",model:"GWHB-12COSMOBT",inv:"Inverter",cap:"1 Ton",rate:120},
+ {code:"MXR0026",model:"GWCB-12COSMO",inv:"Inverter",cap:"1 Ton",rate:120},
+ {code:"MXR0027",model:"GWHB-12COSMO",inv:"Inverter",cap:"1 Ton",rate:120},
+ {code:"MXR0028",model:"GWCB-18COSMO",inv:"Inverter",cap:"1.5 Ton",rate:160},
+ {code:"MXR0029",model:"GWHB-18COSMO",inv:"Inverter",cap:"1.5 Ton",rate:160},
+ {code:"MXR0030",model:"GWCB-24COSMO",inv:"Inverter",cap:"2 Ton",rate:220},
+ {code:"MXR0031",model:"GWHB-24COSMO",inv:"Inverter",cap:"2 Ton",rate:220},
+ {code:"MXR0032",model:"GWCB-36COSMO",inv:"Inverter",cap:"3 Ton",rate:360},
+ {code:"MXR0033",model:"GWHB-36COSMO",inv:"Inverter",cap:"3 Ton",rate:360},
+ {code:"MXR0034",model:"GWC-12CHARMOBT",inv:"On/Off",cap:"1 Ton",rate:100},
+ {code:"MXR0035",model:"GWH-12CHARMOBT",inv:"On/Off",cap:"1 Ton",rate:100}
+];
+
+
+// ══════════════════════════════════════════════════════════════════
+//  Installer Incentive module  (3rd top-level view)
+//  Cloud keys: installerPolicy · installerList · instRecords_YYYY-MM (sharded)
+//  No Apps Script change — rides on the generic gsSet/gsGet key/value store.
+// ══════════════════════════════════════════════════════════════════
+let instPolicy = DEF_INST_POLICY.map(x=>({...x}));    // [{code,model,inv,cap,rate}]
+let instList   = DEF_INST_LIST.map(x=>({...x}));       // [{code,name}]  installer master
+let instRecords= [];                                   // [{reimbNo,month,ts,lines:[{instCode,instName,itemCode,itemName,qty,rate,subtotal}]}]
+let instEntry  = { reimbNo:'', lines:[ instNewLine() ] };
+let instPolicyEdit=false, instListEdit=false;
+let instTab='reimb';
+let instF   = {month:'',reimb:'',inst:'',item:''};     // records-area filters
+let instPolF= {code:'',model:'',inv:'',cap:''};        // policy filters (read-mode only)
+let instListF={code:'',name:''};                       // installer-master filters (read-mode only)
+let instYear= String(new Date().getFullYear());
+let _instLock=Promise.resolve(), _instSig={};
+
+function instNewLine(){return{instCode:'',instName:'',itemCode:'',itemName:'',qty:''};}
+
+// ── pure helpers (unit-tested via Node harness) ───────────────────
+function instNorm(s){return String(s==null?'':s).toUpperCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/\s+/g,' ').trim();}
+function instMonthFromReimb(no){const m=String(no||'').trim().match(/^MXI(\d{4})(\d{2})(\d{2})(\d+)$/);if(!m)return'';const mo=+m[2];if(mo<1||mo>12)return'';return m[1]+'-'+m[2];}
+function instValidReimb(no){const m=String(no||'').trim().match(/^MXI(\d{4})(\d{2})(\d{2})(\d+)$/);if(!m)return false;const mo=+m[2],d=+m[3];return mo>=1&&mo<=12&&d>=1&&d<=31;}
+function instItem(code){return instPolicy.find(p=>p.code===code)||null;}
+function instRateFor(code){const r=instItem(code);return r?Number(r.rate)||0:null;}   // null = not in policy
+function instReimbExists(no){const k=String(no||'').trim();return instRecords.some(r=>String(r.reimbNo).trim()===k);}
+function instMonthPlus(m,n){const p=String(m||'').split('-').map(Number);if(p.length<2)return'';const d=new Date(p[0],(p[1]-1)+n,1);return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0');}
+const INST_MONTHS=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+function instFmt(v){return Number(v||0).toLocaleString('es-MX',{minimumFractionDigits:2,maximumFractionDigits:2});}
+
+function instSearchInstallers(q){
+  const nq=instNorm(q);
+  return instList.filter(p=>!nq||instNorm(p.code).includes(nq)||instNorm(p.name).includes(nq))
+                 .sort((a,b)=>a.code<b.code?-1:a.code>b.code?1:0);
+}
+function instSearchItems(q){
+  const nq=instNorm(q);
+  return instPolicy.filter(p=>!nq||instNorm(p.code).includes(nq)||instNorm(p.model).includes(nq))
+                   .sort((a,b)=>a.code<b.code?-1:a.code>b.code?1:0);
+}
+
+// months (0-11) that actually have records in a given year, ascending
+function instPresentMonths(year){
+  const s=new Set(); const y=String(year);
+  instRecords.forEach(r=>{ if(String(r.month||'').slice(0,4)===y){ const mi=(+String(r.month).slice(5,7))-1; if(mi>=0&&mi<=11)s.add(mi); } });
+  return [...s].sort((a,b)=>a-b);
+}
+// year matrix: code -> months[12] cumulative + total, union of master list and historical rows
+function instYearMatrix(year){
+  const y=String(year), rowMap={};
+  instList.forEach(p=>{rowMap[p.code]={code:p.code,name:p.name,months:Array(12).fill(0),total:0,inList:true};});
+  instRecords.forEach(rec=>{
+    if(String(rec.month||'').slice(0,4)!==y)return;
+    const mi=(+String(rec.month).slice(5,7))-1; if(mi<0||mi>11)return;
+    (rec.lines||[]).forEach(ln=>{
+      const c=ln.instCode; if(!c)return;
+      if(!rowMap[c])rowMap[c]={code:c,name:ln.instName||c,months:Array(12).fill(0),total:0,inList:false};
+      const sub=Number(ln.subtotal); const v=isFinite(sub)?sub:(Number(ln.rate)||0)*(Number(ln.qty)||0);
+      rowMap[c].months[mi]+=v; rowMap[c].total+=v;
+    });
+  });
+  return Object.values(rowMap).sort((a,b)=>a.code<b.code?-1:a.code>b.code?1:0);
+}
+function instCrossings(year){                       // monthly cumulative strictly > 2000
+  const out=[];
+  instYearMatrix(year).forEach(r=>r.months.forEach((v,mi)=>{ if(v>2000)
+    out.push({code:r.code,name:r.name,monthIdx:mi,month:String(year)+'-'+String(mi+1).padStart(2,'0'),total:v}); }));
+  return out;
+}
+function instCrossingReimbs(year){                  // export detail: each crossing → that installer's reimbursements that month
+  const rows=[];
+  instCrossings(year).forEach(cr=>{
+    instRecords.filter(r=>r.month===cr.month).forEach(rec=>{
+      let sub=0; (rec.lines||[]).forEach(ln=>{ if(ln.instCode===cr.code) sub+=Number(ln.subtotal)||0; });
+      if(sub>0) rows.push({code:cr.code,name:cr.name,month:cr.month,reimbNo:rec.reimbNo,reimbSubtotal:sub,monthTotal:cr.total,invoiceFrom:instMonthPlus(cr.month,2)});
+    });
+  });
+  return rows;
+}
+
+// ── cloud: shard by month (mirror commPaid) ───────────────────────
+function instShardKey(m){return 'instRecords_'+(/^\d{4}-\d{2}$/.test(String(m||''))?m:'unknown');}
+function groupInstByMonth(arr){const g={};(arr||[]).forEach(r=>{const k=instShardKey(r&&r.month);(g[k]||(g[k]=[])).push(r);});return g;}
+function mergeInstShards(data){const out=[];Object.keys(data||{}).filter(k=>/^instRecords_/.test(k)).sort().forEach(k=>{const v=data[k];if(Array.isArray(v))v.forEach(r=>out.push(r));});return out;}
+function gsSetInstQ(key,value){const run=_instLock.then(()=>gsSet(key,value));_instLock=run.catch(()=>{});return run;}
+async function persistInstRecords(opts){
+  opts=opts||{};
+  const cur=groupInstByMonth(instRecords);
+  const newSig={};Object.keys(cur).forEach(k=>newSig[k]=JSON.stringify(cur[k]));
+  const goneKeys=Object.keys(_instSig).filter(k=>!(k in newSig));
+  const changed=Object.keys(cur).filter(k=>opts.force||_instSig[k]!==newSig[k]);
+  if(!changed.length&&!goneKeys.length)return{ok:true,wrote:0};
+  for(const k of changed){ if(newSig[k].length>=50000){ setSyncStatus('err','Installer month '+k.slice(12)+' too large ('+newSig[k].length+' chars) — tell Claude'); return{ok:false,tooBig:k}; } }
+  setSyncStatus('loading','Saving installer records…');
+  try{ for(const k of changed) await gsSetInstQ(k,cur[k]); for(const k of goneKeys) await gsSetInstQ(k,[]); }
+  catch(e){ setSyncStatus('err','Save failed — check connection'); return{ok:false,error:String(e)}; }
+  let bad='(none)';
+  for(let attempt=0;attempt<6;attempt++){
+    if(attempt)await new Promise(r=>setTimeout(r,700));
+    let ok=true;
+    try{ const back=await gsGet();
+      for(const k of changed){ if(JSON.stringify(Array.isArray(back[k])?back[k]:[])!==newSig[k]){ ok=false; bad=k.slice(12); break; } }
+      if(ok)for(const k of goneKeys){ const g=back[k]; if(Array.isArray(g)&&g.length){ ok=false; bad=k.slice(12); break; } }
+    }catch(e){ ok=false; bad='read-back failed'; }
+    if(ok){ _instSig={};Object.keys(cur).forEach(k=>_instSig[k]=newSig[k]); setSyncStatus('ok','Installer records saved & verified ✓ '+new Date().toLocaleTimeString()); return{ok:true}; }
+  }
+  setSyncStatus('err','⚠ Installer save NOT confirmed ('+bad+') — reload to check, do NOT trust this save');
+  try{ alert('Installer records failed cloud save verification (month '+bad+'). Reload the page to confirm; do not assume it was saved.'); }catch(e){}
+  return{ok:false,verifyFail:bad};
+}
+async function saveInstPolicy(){ setSyncStatus('loading','Saving incentive policy…'); try{ await gsSet('installerPolicy',instPolicy); setSyncStatus('ok','Policy saved ✓ '+new Date().toLocaleTimeString()); }catch(e){ setSyncStatus('err','Save failed — check connection'); } }
+async function saveInstList(){ setSyncStatus('loading','Saving installer list…'); try{ await gsSet('installerList',instList); setSyncStatus('ok','Installers saved ✓ '+new Date().toLocaleTimeString()); }catch(e){ setSyncStatus('err','Save failed — check connection'); } }
+
+// ── view / tab switching ──────────────────────────────────────────
+function switchInstTab(t){
+  instTab=t;
+  ['reimb','summary','policy'].forEach(n=>{
+    const pane=document.getElementById('ipane-'+n); if(pane)pane.style.display=n===t?'':'none';
+    const btn=document.getElementById('itab-'+n); if(btn)btn.classList.toggle('active',n===t);
+  });
+  if(t==='reimb'){renderInstEntry();renderInstRecords();}
+  if(t==='policy')renderInstPolicy();
+  if(t==='summary'){renderInstList();renderInstSummary();}
+}
+function renderInstaller(){ renderInstEntry(); renderInstRecords(); renderInstPolicy(); renderInstList(); renderInstSummary(); }
+
+// ══ Module 1 · Reimbursement entry ═════════════════════════════════
+function instSetReimb(v){
+  instEntry.reimbNo=v;
+  const mo=instMonthFromReimb(v), ok=instValidReimb(v);
+  const mEl=document.getElementById('inst-month'); if(mEl)mEl.textContent=mo||'—';
+  const msg=document.getElementById('inst-reimb-msg');
+  if(msg){
+    if(!v.trim()){msg.textContent='';}
+    else if(!ok){msg.innerHTML='<span style="color:#b91c1c">Format: MXI+yyyymmdd+sequence, e.g. MXI20260825003</span>';}
+    else if(instReimbExists(v)){msg.innerHTML='<span style="color:#b91c1c">This reimbursement number already exists — revoke the original in the records area to edit</span>';}
+    else {msg.innerHTML='<span style="color:#3B6D11">✓ Month '+mo+'</span>';}
+  }
+}
+function instFilterInstaller(i){
+  const inp=document.getElementById('inst-il-'+i), box=document.getElementById('inst-ir-'+i); if(!inp||!box)return;
+  const res=instSearchInstallers(inp.value).slice(0,50);
+  box.innerHTML=res.length?res.map(p=>`<div class="inst-opt" onmousedown="instPickInstaller(${i},'${p.code}')">${esc(p.code)} - ${esc(p.name)}</div>`).join(''):'<div class="inst-opt muted">No match</div>';
+  box.style.display='block';
+}
+function instPickInstaller(i,code){
+  const p=instList.find(x=>x.code===code); if(!p||!instEntry.lines[i])return;
+  instEntry.lines[i].instCode=p.code; instEntry.lines[i].instName=p.name;
+  const inp=document.getElementById('inst-il-'+i); if(inp)inp.value=p.code+' - '+p.name;
+  const box=document.getElementById('inst-ir-'+i); if(box)box.style.display='none';
+}
+function instFilterItem(i){
+  const inp=document.getElementById('inst-tl-'+i), box=document.getElementById('inst-tr-'+i); if(!inp||!box)return;
+  const res=instSearchItems(inp.value).slice(0,50);
+  box.innerHTML=res.length?res.map(p=>`<div class="inst-opt" onmousedown="instPickItem(${i},'${p.code}')">${esc(p.code)} - ${esc(p.model)} · ${instFmt(p.rate)}</div>`).join(''):'<div class="inst-opt muted">No match (item not in policy)</div>';
+  box.style.display='block';
+}
+function instPickItem(i,code){
+  const p=instItem(code); if(!p||!instEntry.lines[i])return;
+  instEntry.lines[i].itemCode=p.code; instEntry.lines[i].itemName=p.model;
+  const inp=document.getElementById('inst-tl-'+i); if(inp)inp.value=p.code+' - '+p.model;
+  const box=document.getElementById('inst-tr-'+i); if(box)box.style.display='none';
+  instRecalcLine(i);
+}
+function instBlur(id){ setTimeout(()=>{const b=document.getElementById(id);if(b)b.style.display='none';},150); }
+function instSetQty(i,v){ if(!instEntry.lines[i])return; instEntry.lines[i].qty=v.replace(/[^\d]/g,''); instRecalcLine(i); }
+function instRecalcLine(i){
+  const ln=instEntry.lines[i]; if(!ln)return;
+  const rate=instRateFor(ln.itemCode); const qty=parseInt(ln.qty,10)||0;
+  const sub=(rate==null)?0:rate*qty;
+  const cell=document.getElementById('inst-sub-'+i); if(cell)cell.textContent=(rate==null&&ln.itemCode)?'—':instFmt(sub);
+  instRecalcTotal();
+}
+function instRecalcTotal(){
+  let t=0; instEntry.lines.forEach(ln=>{const r=instRateFor(ln.itemCode);const q=parseInt(ln.qty,10)||0;if(r!=null)t+=r*q;});
+  const el=document.getElementById('inst-total'); if(el)el.textContent=instFmt(t);
+}
+function instAddLine(){ instEntry.lines.push(instNewLine()); renderInstEntry(); }
+function instDelLine(i){ instEntry.lines.splice(i,1); if(!instEntry.lines.length)instEntry.lines.push(instNewLine()); renderInstEntry(); }
+function instClearEntry(){ instEntry={reimbNo:'',lines:[instNewLine()]}; renderInstEntry(); }
+
+function renderInstEntry(){
+  const el=document.getElementById('inst-entry-body'); if(!el)return;
+  const mo=instMonthFromReimb(instEntry.reimbNo);
+  const rows=instEntry.lines.map((ln,i)=>{
+    const rate=instRateFor(ln.itemCode); const qty=parseInt(ln.qty,10)||0;
+    const sub=(rate==null)?(ln.itemCode?'—':instFmt(0)):instFmt(rate*qty);
+    const instLabel=ln.instCode?esc(ln.instCode+' - '+ln.instName):'';
+    const itemLabel=ln.itemCode?esc(ln.itemCode+' - '+ln.itemName):'';
+    return `<tr>
+      <td class="lft"><div class="inst-combo"><input id="inst-il-${i}" class="ri-c wide" placeholder="Search Installer Code / Name…" value="${instLabel}" oninput="instFilterInstaller(${i})" onfocus="instFilterInstaller(${i})" onblur="instBlur('inst-ir-${i}')"><div id="inst-ir-${i}" class="inst-drop"></div></div></td>
+      <td class="lft"><div class="inst-combo"><input id="inst-tl-${i}" class="ri-c wide" placeholder="Search Item Code / Name…" value="${itemLabel}" oninput="instFilterItem(${i})" onfocus="instFilterItem(${i})" onblur="instBlur('inst-tr-${i}')"><div id="inst-tr-${i}" class="inst-drop"></div></div></td>
+      <td><input class="ri-c" style="width:70px;text-align:right" inputmode="numeric" value="${esc(ln.qty)}" oninput="instSetQty(${i},this.value)"></td>
+      <td id="inst-sub-${i}" style="text-align:right;font-variant-numeric:tabular-nums">${sub}</td>
+      <td style="width:34px"><button class="delbtn" onclick="instDelLine(${i})">🗑</button></td>
+    </tr>`;
+  }).join('');
+  el.innerHTML=`
+    <div class="filters" style="margin-bottom:14px">
+      <div class="fg"><div class="fl">Reimbursement No.</div><input id="inst-reimb" class="ri-c" style="width:200px;text-align:left" placeholder="MXI20260825003" value="${esc(instEntry.reimbNo)}" oninput="instSetReimb(this.value)"></div>
+      <div class="fg"><div class="fl">Month (auto)</div><div id="inst-month" style="padding:8px 0;font-weight:600">${mo||'—'}</div></div>
+      <div class="fg" style="flex:1"><div class="fl">&nbsp;</div><div id="inst-reimb-msg" style="padding:8px 0;font-size:12px"></div></div>
+    </div>
+    <div style="overflow-x:auto"><table class="ctable" style="min-width:640px">
+      <thead><tr><th class="lft" style="width:230px">Installer Name</th><th class="lft" style="width:260px">Item Name</th><th style="width:80px">Quantity</th><th style="width:110px">Subtotal</th><th></th></tr></thead>
+      <tbody>${rows}
+        <tr><td colspan="5" style="text-align:left;padding-top:8px"><button class="btn sm" onclick="instAddLine()">+ Add line</button></td></tr>
+        <tr class="crow-total"><td class="lft" colspan="3" style="text-align:right">Total Incentive</td><td id="inst-total" style="text-align:right">${instFmt(0)}</td><td></td></tr>
+      </tbody></table></div>
+    <div style="margin-top:14px;display:flex;gap:10px">
+      <button class="btn primary" onclick="instSubmit()">✅ Submit</button>
+      <button class="btn" onclick="instClearEntry()">Clear</button>
+    </div>`;
+  instSetReimb(instEntry.reimbNo); instRecalcTotal();
+}
+
+async function instSubmit(){
+  const no=String(instEntry.reimbNo||'').trim();
+  if(!instValidReimb(no)){ alert('Invalid reimbursement number. Expected MXI+yyyymmdd+sequence, e.g. MXI20260825003.'); return; }
+  if(instReimbExists(no)){ alert('Reimbursement No. '+no+' already exists (duplicate).\nTo edit it, revoke the original in the records area below, then resubmit.'); return; }
+  const lines=instEntry.lines.filter(l=>l.instCode&&l.itemCode&&(parseInt(l.qty,10)||0)>0);
+  if(!lines.length){ alert('At least one valid line is required (installer + item + quantity ≥ 1).'); return; }
+  const bad=lines.find(l=>instRateFor(l.itemCode)==null);
+  if(bad){ alert('Item '+bad.itemCode+' is not in the incentive policy. Add it under Incentive Policy first.'); return; }
+  const month=instMonthFromReimb(no);
+  const rec={ reimbNo:no, month, ts:Date.now(), lines:lines.map(l=>{
+    const rate=instRateFor(l.itemCode); const qty=parseInt(l.qty,10)||0;
+    return { instCode:l.instCode, instName:l.instName, itemCode:l.itemCode, itemName:l.itemName, qty, rate, subtotal:rate*qty }; // rate & name frozen here
+  })};
+  instRecords.push(rec);
+  instClearEntry(); renderInstRecords();
+  await persistInstRecords();
+  if(instTab==='summary')renderInstSummary();
+}
+
+// ══ Module 1 · Records area (filters + nested collapse) ════════════
+function instSetFilter(f,v){ instF[f]=v; renderInstRecords(); }
+function instMatchRecord(rec){
+  if(instF.month && !instNorm(rec.month).includes(instNorm(instF.month))) return false;
+  if(instF.reimb && !String(rec.reimbNo).includes(instF.reimb.trim())) return false;
+  if(instF.inst){ const nq=instNorm(instF.inst); if(!(rec.lines||[]).some(l=>instNorm(l.instCode).includes(nq)||instNorm(l.instName).includes(nq))) return false; }
+  if(instF.item){ const nq=instNorm(instF.item); if(!(rec.lines||[]).some(l=>instNorm(l.itemCode).includes(nq)||instNorm(l.itemName).includes(nq))) return false; }
+  return true;
+}
+function instVisibleLines(rec){
+  let ls=rec.lines||[];
+  if(instF.inst){ const nq=instNorm(instF.inst); ls=ls.filter(l=>instNorm(l.instCode).includes(nq)||instNorm(l.instName).includes(nq)); }
+  if(instF.item){ const nq=instNorm(instF.item); ls=ls.filter(l=>instNorm(l.itemCode).includes(nq)||instNorm(l.itemName).includes(nq)); }
+  return ls;
+}
+function renderInstRecords(){
+  const el=document.getElementById('inst-records-body'); if(!el)return;
+  const recs=instRecords.filter(instMatchRecord);
+  const byMonth={}; recs.forEach(r=>{(byMonth[r.month]||(byMonth[r.month]=[])).push(r);});
+  const months=Object.keys(byMonth).sort().reverse();
+  let html='';
+  if(!months.length){ html='<div class="empty">📋 No records (or none match the current filters)</div>'; }
+  months.forEach(mo=>{
+    const mRecs=byMonth[mo].slice().sort((a,b)=>a.reimbNo<b.reimbNo?-1:a.reimbNo>b.reimbNo?1:0);
+    let mTotal=0; mRecs.forEach(r=>instVisibleLines(r).forEach(l=>mTotal+=Number(l.subtotal)||0));
+    let inner='';
+    mRecs.forEach(rec=>{
+      const ls=instVisibleLines(rec); if(!ls.length)return;
+      let rTotal=0; ls.forEach(l=>rTotal+=Number(l.subtotal)||0);
+      const byInst={}; ls.forEach(l=>{(byInst[l.instCode]||(byInst[l.instCode]=[])).push(l);});
+      let instHtml='';
+      Object.keys(byInst).sort().forEach(ic=>{
+        const g=byInst[ic]; const nm=g[0].instName; let gT=0; g.forEach(l=>gT+=Number(l.subtotal)||0);
+        const lineRows=g.map(l=>`<tr class="crow-detail"><td class="lft mono">${esc(l.itemCode)}</td><td class="lft">${esc(l.itemName)}</td><td style="text-align:right">${l.qty}</td><td style="text-align:right">${instFmt(l.rate)}</td><td style="text-align:right">${instFmt(l.subtotal)}</td></tr>`).join('');
+        instHtml+=`<details class="inst-det inst-det-3"><summary><span class="inst-sum-t">👷 ${esc(ic)} - ${esc(nm)}</span><span class="inst-sum-a">${instFmt(gT)}</span></summary>
+          <table class="ctable" style="margin:6px 0 10px"><thead><tr><th class="lft">Item Code</th><th class="lft">Item Name</th><th>Qty</th><th>Rate</th><th>Subtotal</th></tr></thead><tbody>${lineRows}</tbody></table></details>`;
+      });
+      inner+=`<details class="inst-det inst-det-2"><summary><span class="inst-sum-t">🧾 ${esc(rec.reimbNo)}</span><span class="inst-sum-a">${instFmt(rTotal)} <button class="btn sm" style="margin-left:8px" onclick="event.preventDefault();instRevoke('${esc(rec.reimbNo)}')">↩︎ Revoke</button></span></summary>${instHtml}</details>`;
+    });
+    html+=`<details class="inst-det inst-det-1"><summary><span class="inst-sum-t">📅 ${esc(mo)}</span><span class="inst-sum-a">${instFmt(mTotal)}</span></summary>${inner}</details>`;
+  });
+  el.innerHTML=html;
+}
+async function instRevoke(no){
+  const rec=instRecords.find(r=>String(r.reimbNo).trim()===String(no).trim()); if(!rec)return;
+  if(!confirm('Revoke reimbursement '+no+'?\nIt will be returned to the entry form above for editing and removed from the cloud. Rates will be re-frozen from the current policy when you resubmit.')) return;
+  instEntry={ reimbNo:rec.reimbNo, lines:(rec.lines||[]).map(l=>({instCode:l.instCode,instName:l.instName,itemCode:l.itemCode,itemName:l.itemName,qty:String(l.qty)})) };
+  if(!instEntry.lines.length)instEntry.lines=[instNewLine()];
+  instRecords=instRecords.filter(r=>r!==rec);
+  renderInstEntry(); renderInstRecords();
+  try{ document.getElementById('inst-entry-body').scrollIntoView({behavior:'smooth',block:'start'}); }catch(e){}
+  await persistInstRecords();
+  if(instTab==='summary')renderInstSummary();
+}
+
+// ══ Module 2 · Incentive Policy editor ════════════════════════════
+// Filter toolbar lives OUTSIDE the re-rendered table body, so typing in a
+// text filter never rebuilds (and never de-focuses) the input.
+function instClearPolF(){ instPolF={code:'',model:'',inv:'',cap:''}; renderInstPolicyFilter(); renderInstPolicyTable(); }
+function instPolMove(i,d){ const j=i+d; if(j<0||j>=instPolicy.length)return; const t=instPolicy[i];instPolicy[i]=instPolicy[j];instPolicy[j]=t; renderInstPolicyTable(); }
+function instCollectPol(){
+  document.querySelectorAll('#inst-policy-body .pol-in').forEach(inp=>{ const i=+inp.dataset.i,f=inp.dataset.f; if(!instPolicy[i])return; instPolicy[i][f]=f==='rate'?(parseFloat(inp.value)||0):inp.value.trim(); });
+}
+async function instTogglePolEdit(){
+  if(!instPolicyEdit){ instPolicyEdit=true; renderInstPolicy(); return; }
+  instCollectPol(); instPolicy=instPolicy.filter(r=>r.code); instPolicyEdit=false; renderInstPolicy();
+  await saveInstPolicy();
+}
+function renderInstPolicy(){ renderInstPolicyFilter(); renderInstPolicyTable(); const b=document.getElementById('inst-pol-btn'); if(b)b.innerHTML=instPolicyEdit?'💾 Save to cloud':'✏️ Edit'; }
+function renderInstPolicyFilter(){
+  const el=document.getElementById('inst-pol-filter'); if(!el)return;
+  if(instPolicyEdit){ el.innerHTML='<div class="fn" style="color:#999">Filters are disabled in edit mode.</div>'; return; }
+  const invOpts=[...new Set(instPolicy.map(p=>p.inv).filter(Boolean))];
+  const capOpts=[...new Set(instPolicy.map(p=>p.cap).filter(Boolean))].sort((a,b)=>(parseFloat(a)||0)-(parseFloat(b)||0));
+  const opt=(v,cur)=>`<option value="${esc(v)}"${v===cur?' selected':''}>${esc(v||'All')}</option>`;
+  el.innerHTML=`
+    <div class="fg"><div class="fl">Item Code</div><input class="ri-c" style="width:130px;text-align:left" placeholder="e.g. 0022" value="${esc(instPolF.code)}" oninput="instPolF.code=this.value;renderInstPolicyTable()"></div>
+    <div class="fg"><div class="fl">Item Name</div><input class="ri-c" style="width:200px;text-align:left" placeholder="e.g. COSMO" value="${esc(instPolF.model)}" oninput="instPolF.model=this.value;renderInstPolicyTable()"></div>
+    <div class="fg"><div class="fl">Inverter/Non-Inverter</div><select class="ri-c" style="width:140px;text-align:left" onchange="instPolF.inv=this.value;renderInstPolicyTable()">${opt('',instPolF.inv)}${invOpts.map(v=>opt(v,instPolF.inv)).join('')}</select></div>
+    <div class="fg"><div class="fl">Capacity</div><select class="ri-c" style="width:120px;text-align:left" onchange="instPolF.cap=this.value;renderInstPolicyTable()">${opt('',instPolF.cap)}${capOpts.map(v=>opt(v,instPolF.cap)).join('')}</select></div>
+    <div class="fg"><div class="fl">&nbsp;</div><button class="btn sm" onclick="instClearPolF()">Clear</button></div>`;
+}
+function renderInstPolicyTable(){
+  const el=document.getElementById('inst-policy-body'); if(!el)return;
+  const ed=instPolicyEdit;
+  const filt=p=>(!instPolF.code||instNorm(p.code).includes(instNorm(instPolF.code)))&&(!instPolF.model||instNorm(p.model).includes(instNorm(instPolF.model)))&&(!instPolF.inv||p.inv===instPolF.inv)&&(!instPolF.cap||p.cap===instPolF.cap);
+  const list=ed?instPolicy.map((p,i)=>[p,i]):instPolicy.map((p,i)=>[p,i]).filter(([p])=>filt(p));
+  const rows=list.map(([r,i])=>ed
+    ?`<tr>
+        <td class="lft"><input class="ri-c wide pol-in mono" data-i="${i}" data-f="code" value="${esc(r.code)}"></td>
+        <td class="lft"><input class="ri-c wide pol-in" data-i="${i}" data-f="model" value="${esc(r.model)}"></td>
+        <td class="lft"><input class="ri-c wide pol-in" data-i="${i}" data-f="inv" value="${esc(r.inv)}"></td>
+        <td class="lft"><input class="ri-c wide pol-in" data-i="${i}" data-f="cap" value="${esc(r.cap)}"></td>
+        <td><input class="ri-c pol-in" type="number" data-i="${i}" data-f="rate" value="${r.rate}"></td>
+        <td style="white-space:nowrap"><button class="btn sm" onclick="instCollectPol();instPolMove(${i},-1)">↑</button><button class="btn sm" onclick="instCollectPol();instPolMove(${i},1)">↓</button><button class="delbtn" onclick="instCollectPol();instPolicy.splice(${i},1);renderInstPolicyTable()">🗑</button></td>
+      </tr>`
+    :`<tr><td class="lft mono">${esc(r.code)}</td><td class="lft">${esc(r.model)}</td><td class="lft">${esc(r.inv)}</td><td class="lft">${esc(r.cap)}</td><td style="text-align:right">${instFmt(r.rate)}</td></tr>`
+  ).join('');
+  const addRow=ed?`<tr><td colspan="6" style="text-align:left;padding-top:8px"><button class="btn sm" onclick="instCollectPol();instPolicy.push({code:'',model:'',inv:'',cap:'',rate:0});renderInstPolicyTable()">+ Add item</button> <button class="btn sm" onclick="instPolicyEdit=false;renderInstPolicy()">Cancel (discard)</button></td></tr>`:'';
+  const emptyRow=(!ed&&!list.length)?`<tr><td colspan="5" class="empty">No items match the filters</td></tr>`:'';
+  el.innerHTML=`<div style="overflow-x:auto;margin-top:8px"><table class="ctable">
+    <thead><tr><th class="lft" style="width:110px">Item Code</th><th class="lft" style="width:220px">Item Name</th><th class="lft" style="width:120px">Inverter/Non-Inverter</th><th class="lft" style="width:90px">Capacity</th><th style="width:150px">Installer Incentive MXN/Set</th>${ed?'<th></th>':''}</tr></thead>
+    <tbody>${rows}${emptyRow}${addRow}</tbody></table></div>
+    <div class="fn" style="margin-top:8px">${instPolicy.length} items · Subtotal = Quantity × rate · rate frozen at submit</div>`;
+}
+
+// ══ Module 3 · Installer master + yearly summary ══════════════════
+function instSetListF(f,v){ instListF[f]=v; renderInstListTable(); }
+function instClearListF(){ instListF={code:'',name:''}; renderInstListFilter(); renderInstListTable(); }
+function instListMove(i,d){ const j=i+d; if(j<0||j>=instList.length)return; const t=instList[i];instList[i]=instList[j];instList[j]=t; renderInstListTable(); }
+function instCollectList(){ document.querySelectorAll('#inst-list-body .il-in').forEach(inp=>{ const i=+inp.dataset.i,f=inp.dataset.f; if(!instList[i])return; instList[i][f]=inp.value.trim(); }); }
+async function instToggleListEdit(){
+  if(!instListEdit){ instListEdit=true; renderInstList(); return; }
+  instCollectList(); instList=instList.filter(r=>r.code); instListEdit=false; renderInstList(); renderInstSummary();
+  await saveInstList();
+}
+function renderInstList(){ renderInstListFilter(); renderInstListTable(); const b=document.getElementById('inst-list-btn'); if(b)b.innerHTML=instListEdit?'💾 Save to cloud':'✏️ Edit'; }
+function renderInstListFilter(){
+  const el=document.getElementById('inst-list-filter'); if(!el)return;
+  if(instListEdit){ el.innerHTML='<div class="fn" style="color:#999">Filters are disabled in edit mode.</div>'; return; }
+  el.innerHTML=`
+    <div class="fg"><div class="fl">Installer Code</div><input class="ri-c" style="width:140px" placeholder="e.g. 00032" value="${esc(instListF.code)}" oninput="instListF.code=this.value;renderInstListTable()"></div>
+    <div class="fg"><div class="fl">Installer Name</div><input class="ri-c" style="width:200px" placeholder="e.g. DANY" value="${esc(instListF.name)}" oninput="instListF.name=this.value;renderInstListTable()"></div>
+    <div class="fg"><div class="fl">&nbsp;</div><button class="btn sm" onclick="instClearListF()">Clear</button></div>`;
+}
+function renderInstListTable(){
+  const el=document.getElementById('inst-list-body'); if(!el)return;
+  const ed=instListEdit;
+  const filt=p=>(!instListF.code||instNorm(p.code).includes(instNorm(instListF.code)))&&(!instListF.name||instNorm(p.name).includes(instNorm(instListF.name)));
+  const list=ed?instList.map((p,i)=>[p,i]):instList.map((p,i)=>[p,i]).filter(([p])=>filt(p));
+  const rows=list.map(([r,i])=>ed
+    ?`<tr><td class="lft"><input class="ri-c wide il-in mono" data-i="${i}" data-f="code" value="${esc(r.code)}"></td>
+        <td class="lft"><input class="ri-c wide il-in" data-i="${i}" data-f="name" value="${esc(r.name)}"></td>
+        <td style="white-space:nowrap"><button class="btn sm" onclick="instCollectList();instListMove(${i},-1)">↑</button><button class="btn sm" onclick="instCollectList();instListMove(${i},1)">↓</button><button class="delbtn" onclick="instCollectList();instList.splice(${i},1);renderInstListTable()">🗑</button></td></tr>`
+    :`<tr><td class="lft mono">${esc(r.code)}</td><td class="lft">${esc(r.name)}</td></tr>`
+  ).join('');
+  const addRow=ed?`<tr><td colspan="3" style="text-align:left;padding-top:8px"><button class="btn sm" onclick="instCollectList();instList.push({code:'',name:''});renderInstListTable()">+ Add installer</button> <button class="btn sm" onclick="instListEdit=false;renderInstList()">Cancel (discard)</button></td></tr>`:'';
+  const emptyRow=(!ed&&!list.length)?`<tr><td colspan="2" class="empty">No installers match the filters</td></tr>`:'';
+  el.innerHTML=`<div style="overflow-x:auto;margin-top:8px"><table class="ctable" style="max-width:560px">
+    <thead><tr><th class="lft" style="width:140px">Installer Code</th><th class="lft">Installer Name</th>${ed?'<th></th>':''}</tr></thead>
+    <tbody>${rows}${emptyRow}${addRow}</tbody></table></div>
+    <div class="fn" style="margin-top:8px">${instList.length} installers · Deleting does not affect history (records snapshot code+name)</div>`;
+}
+
+function instYearOptions(){
+  const ys=new Set([String(new Date().getFullYear())]);
+  instRecords.forEach(r=>{const y=String(r.month||'').slice(0,4);if(/^\d{4}$/.test(y))ys.add(y);});
+  return [...ys].sort().reverse();
+}
+function instSetYear(y){ instYear=y; renderInstSummary(); }
+function renderInstSummary(){
+  const el=document.getElementById('inst-summary-body'); if(!el)return;
+  const ysel=document.getElementById('inst-year');
+  if(ysel){ const opts=instYearOptions(); ysel.innerHTML=opts.map(y=>`<option value="${y}"${y===instYear?' selected':''}>${y}</option>`).join(''); if(!opts.includes(instYear)){instYear=opts[0];ysel.value=instYear;} }
+  const present=instPresentMonths(instYear);              // only months that actually have records
+  if(!present.length){ el.innerHTML=`<div class="empty" style="margin-top:8px">No records for ${esc(instYear)}</div>`; return; }
+  const mat=instYearMatrix(instYear);
+  const head=`<tr><th class="lft" style="width:130px">Installer Code</th><th class="lft" style="width:210px">Installer Name</th>${present.map(mi=>`<th>${INST_MONTHS[mi]}</th>`).join('')}<th>Total</th></tr>`;
+  const body=mat.map(r=>{
+    const tds=present.map(mi=>{const v=r.months[mi];const over=v>2000;return `<td style="text-align:right${over?';background:#FAEEDA;color:#854F0B;font-weight:700':''}">${v?instFmt(v):'—'}</td>`;}).join('');
+    return `<tr><td class="lft mono">${esc(r.code)}</td><td class="lft">${esc(r.name)}${r.inList?'':' <span class="badge amber">deleted · history only</span>'}</td>${tds}<td style="text-align:right;font-weight:700">${r.total?instFmt(r.total):'—'}</td></tr>`;
+  }).join('');
+  const crossings=instCrossings(instYear);
+  let notes='';
+  if(crossings.length){
+    notes='<div style="margin-top:16px;border-left:3px solid #854F0B;background:#FDF6EC;padding:12px 14px;border-radius:0 8px 8px 0">'
+      +'<div style="font-weight:600;color:#854F0B;margin-bottom:6px">⚠ Over-threshold (monthly cumulative &gt; $2,000 MXN)</div>'
+      +crossings.map(c=>`<div style="font-size:12.5px;line-height:1.7">${esc(c.name)} (${esc(c.code)}) — ${INST_MONTHS[c.monthIdx]} cumulative incentive <b>${instFmt(c.total)}</b> &gt; $2,000 MXN. Please notify the salesperson to help the installer complete the relevant tax registration, and provide invoices starting from <b>${instMonthPlus(c.month,2)}</b> (one month grace period); otherwise Finance reserves the right to withhold the installer incentive.</div>`).join('')
+      +'</div>';
+  }
+  el.innerHTML=`<div style="overflow-x:auto"><table class="ctable" style="min-width:640px"><thead>${head}</thead><tbody>${body}</tbody></table></div>${notes}`;
+}
+function instExportCrossings(){
+  const rows=instCrossingReimbs(instYear);
+  if(!rows.length){ alert('No installers exceeded $2,000 monthly cumulative in '+instYear+'.'); return; }
+  const aoa=[['Installer Code','Installer Name','Month','Reimbursement No.','Reimb Subtotal (MXN)','Month Total (MXN)','Provide invoice from']];
+  rows.forEach(r=>aoa.push([r.code,r.name,r.month,r.reimbNo,Math.round(r.reimbSubtotal*100)/100,Math.round(r.monthTotal*100)/100,r.invoiceFrom]));
+  const wb=XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb,XLSX.utils.aoa_to_sheet(aoa),'Over-2000');
+  XLSX.writeFile(wb,'Installer_over2000_'+instYear+'.xlsx');
+}
+
+// ===== /Installer Incentive =====
+
 loadFromCloud();
 </script>
 </body>
