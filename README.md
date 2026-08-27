@@ -2,23 +2,13 @@
 
 A sales, collections, and commission reporting tool. Single-file HTML, no backend required, deployed on GitHub Pages. Roster, targets, China Projects, commission rules, and commission inputs are stored in Google Sheets.
 
-A **left navigation** splits the app into two areas, because the two run on different cadences (sales updates daily; commission is a once-a-month calculation):
+A **left navigation** splits the app into three areas, because they run on different cadences (sales updates daily; commission is a once-a-month calculation; installer incentives are entered ad hoc):
 
 - **📊 Sales Report** — the daily sales/collections tool, containing five tabs: **Collection Report**, **Sales Report**, **Target Setup**, **China Projects**, **Upload Data**.
 - **💰 Commission** — the monthly commission calculator, with three sub-tabs: **RAC**, **L&CAC**, **Inputs**.
+- **🔧 Installer Incentive** — the installer set-installation incentive tool, with three sub-tabs: **Reimbursements**, **Summary & Installers**, **Incentive Policy**.
 
 > The Sales Report view opens on the **Upload Data** tab by default. On narrow screens the left navigation collapses to a top bar. All amounts are displayed in **MXN** (thousands separator; two decimals in the app, whole-peso totals in commission payouts).
-
----
-
-## 🔗 Key Links
-
-| Name | URL |
-|------|-----|
-| **Web app** | https://zoezhao273.github.io/greemexico-salesreport2/gree_sales_report2.html |
-| **GitHub repository** | https://github.com/zoezhao273/greemexico-salesreport2 |
-
-> The cloud backend (Google Sheets via an Apps Script Web App) endpoint is configured inside the HTML (`GS_URL`) and is intentionally not reproduced here. Uploading a new HTML file to the repository does not change any of these links.
 
 ---
 
@@ -54,6 +44,14 @@ External libraries are loaded via CDN: SheetJS (Excel parsing), html2canvas (PNG
 | **Inputs** | 3rd Brokerage Fee, Collection Progress, and the Commission-paid ledger |
 
 > The month selector, **📤 Post month to Commission-paid**, **📊 Export Excel** button, and the running RAC / L&CAC / Total figures sit above the sub-tabs and apply to all three.
+
+### 🔧 Installer Incentive view (three sub-tabs)
+
+| Sub-tab | Purpose |
+|---------|---------|
+| **Reimbursements** | Enter installer reimbursement records (top) and browse the saved records as a Month → Reimbursement → Installer → line tree (bottom) |
+| **Summary & Installers** | Per-installer yearly incentive matrix with the $2,000/month threshold check (top) and the collapsible installer master list (below) |
+| **Incentive Policy** | The per-model incentive-rate table (Item Code · Item Name · Inverter/Non-Inverter · Capacity · MXN/Set) |
 
 ---
 
@@ -393,6 +391,37 @@ Each workbook has three sheets: **Summary** (per person: code, name, RAC (ref), 
 
 ---
 
+## 🔧 Installer Incentive
+
+A standalone third area (left navigation, alongside Sales Report and Commission) that pays installers a fixed incentive per unit installed of specific models. It is **fully manual** — reimbursement records are typed in, not derived from SI/ERP data — and rides entirely on the existing generic cloud store, so **no Apps Script change is required**. Three sub-tabs: **Reimbursements**, **Summary & Installers**, **Incentive Policy**.
+
+### Core model ⭐
+- **Incentive = Σ (quantity × per-set rate)**, where each model's rate comes from the Incentive Policy table, matched by **Item Code** (`MXR…`). All amounts in MXN; rates and quantities are integers, so every subtotal is a whole peso.
+- One **Reimbursement No.** belongs to exactly **one month** and may contain **multiple installers and multiple models** — the installer sits at the line level, not the header. In the cloud, one reimbursement is one record.
+
+### Reimbursements — entry
+- **Reimbursement No.** format is `MXI` + `yyyymmdd` + sequence (e.g. `MXI20260825003`). The **Month is auto-derived** from the embedded date and cross-checked; there is no manual month field.
+- Each line holds **Installer** (searchable) · **Item** (searchable) · **Quantity** (integer) · **Subtotal** (auto = rate × qty). A running **Total Incentive** sits at the bottom; add as many lines as needed.
+- **Search** is accent-insensitive and matches a substring of either code or name, results sorted by code ascending (typing `32` finds `S-MX-00032`; typing `andres` finds `ANDRÉS`).
+- **Submit** is blocked on: invalid Reimbursement No. format, a **duplicate Reimbursement No.**, any line whose **Item is not in the policy**, and empty lines. On submit the **rate and model name are frozen** (snapshotted) into each line, so later policy edits never change historical payouts. ⭐
+
+### Reimbursements — records
+- Saved to the cloud and shown as a **four-level collapsible** tree — **Month → Reimbursement No. → Installer → item lines** — everything collapsed by default.
+- Top filters: Month, Reimbursement No. (substring), Installer, Item (all accent-insensitive substring).
+- **Revoke** on a reimbursement returns the whole record to the entry form for editing and removes it from the cloud, releasing the number; rates re-freeze from the current policy when it is resubmitted.
+
+### Incentive Policy
+- Columns: **Item Code · Item Name · Inverter/Non-Inverter · Capacity · Installer Incentive MXN/Set** (seeded with 35 models). Read-only with an **Edit** toggle; add / edit / delete / reorder (↑ ↓), with new rows appended at the end.
+- Filter bar (read mode only): **Item Code** and **Item Name** are live substring text filters; **Inverter/Non-Inverter** and **Capacity** are dropdowns built from the distinct values in the table. Filters are disabled in edit mode to keep row indices stable.
+- The policy is independent of the commission rate tables: the same `MXR` code can carry a different display name here (full factory model) than in Commission (short name). Matching is always by Item Code, so the display strings never affect amounts. ⭐
+
+### Summary & Installers
+- **Incentive Summary** — pick a **Year**; the matrix lists every installer with their **per-month cumulative incentive** and a Total. Only months that actually have records appear as columns; a year with no records shows an empty state.
+- **$2,000 threshold** ⭐ — any installer whose **monthly** cumulative exceeds **$2,000 MXN** (strictly greater) is highlighted, with a reminder naming each installer/month and the **month + 2** from which invoices must be provided. **📊 Export over-threshold list** writes an Excel sheet with, for every crossing, each of that installer's reimbursements that month (Reimbursement No., that installer's subtotal, the month total, and the invoice-from month).
+- **Installers** (collapsible below the summary, collapsed by default) — the installer master (Installer Code · Installer Name). Add / edit / delete / reorder with live substring filters; new installers default to 0 in every month. **Deleting an installer does not erase history** — records keep a snapshot of the code and name, and a history-only installer still appears in the matrix, flagged as such. ⭐
+
+---
+
 ## ☁️ Cloud Sync
 
 ### Storage architecture
@@ -412,10 +441,15 @@ Each workbook has three sheets: **Summary** (per person: code, name, RAC (ref), 
 | Collection progress | Google Sheets | `commCollection` |
 | Commission exemptions (SOs excluded from all commission) | Google Sheets | `commExempt` |
 | Commission-paid ledger (payout + `Paid` settlement rows) | Google Sheets | **`commPaid_YYYY-MM`** (one cell per month) — legacy single-key `commPaid` is auto-migrated on first load and kept read-only as a fallback |
+| Installer incentive policy (per-model rates) | Google Sheets | `installerPolicy` |
+| Installer master list | Google Sheets | `installerList` |
+| Installer reimbursement records | Google Sheets | **`instRecords_YYYY-MM`** (one cell per month) |
 | Column-width preferences | Browser localStorage | Local only, not synced |
 | SI / Customer / Collection Excel files | Not stored | Processed in memory on each upload |
 
 > **New cloud keys since the commission module** — `commRuleSP`, `commRuleBM`, `commRuleCom`, `soDenoms`, `commBrokerage`, `commCollection`, `commExempt`, `commPaid`. The Apps Script store below is generic (any key), so **no backend change is needed** unless the deployment enforces a key allow-list — in which case add these keys and re-deploy.
+
+> **New cloud keys since the Installer Incentive module** — `installerPolicy`, `installerList`, and the per-month `instRecords_YYYY-MM` records. They use the same generic store, so **no Apps Script change is needed**. Reimbursement records are **sharded per month** for the same reason as the commission ledger (the 50,000-char cell cap) and are **read back and verified** after every write.
 
 > Legacy `roster` key compatibility: if the sheet has the old single-key `roster` but no `rosters`, it is automatically mapped to the current month on load.
 
@@ -439,6 +473,9 @@ Data is stored in a sheet named `targets`. Each row is one key-value pair; the v
 | `commExempt` | `[{so, reason}, ...]` (SOs excluded from all commission) |
 | `commPaid_YYYY-MM` (one cell per month) | that month's ledger rows: `[{month, so, si, type, siBase, full, amount, paidPct, name, note, _empId, _branch}, ...]` — `type` ∈ RAC-SP / RAC-BM / COM-SP / COM-BM (payout rows) or `Paid` (whole-SI settlement, excluded from all streams). `full`/`siBase` kept at full precision; `amount` to the cent. Sharded per month so no single cell approaches the 50,000-char Sheets limit; the legacy single-key `commPaid` cell is kept read-only after migration |
 | `exclusions` | `[{so, type, usage}, ...]` (only `so` affects calculations; `type` / `usage` are labels) |
+| `installerPolicy` | `[{code, model, inv, cap, rate}, ...]` (per-set MXN by Item Code; `model` is the displayed Item Name) |
+| `installerList` | `[{code, name}, ...]` (installer master) |
+| `instRecords_YYYY-MM` (one cell per month) | that month's reimbursements: `[{reimbNo, month, ts, lines:[{instCode, instName, itemCode, itemName, qty, rate, subtotal}]}, ...]` — `rate` and `itemName` frozen at submit; sharded per month like the commission ledger so no single cell approaches the 50,000-char limit |
 
 ### Read / write flow
 - **Read (page load):** GET request to the cloud Web App endpoint (`GS_URL`, configured in the HTML); parses `rosters`, `targets`, `schemas`, `chinaProjects`, `exclusions`, and the commission keys (`commRuleSP`, `commRuleBM`, `commRuleCom`, `soDenoms`, `commBrokerage`, `commCollection`, `commExempt`); the Commission-paid ledger is assembled by **merging all `commPaid_YYYY-MM` shards** into one in-memory array, with one-time migration from the legacy single `commPaid` cell.
@@ -542,7 +579,7 @@ After any code change: open the project at script.google.com → Save (Cmd+S) �
 - Cloud layer: Google Apps Script (POST write / GET read) + Google Sheets.
 - Hosting: GitHub Pages (public repository, free permanent URL).
 - Amount formatting: `toLocaleString('es-MX')`, two decimal places (MXN).
-- **Cloud cell limit:** Google Sheets caps a cell at **50,000 characters**. Large, growing datasets (the Commission-paid ledger) are **sharded by key** (one `commPaid_YYYY-MM` cell per month), never stored as a single JSON blob.
+- **Cloud cell limit:** Google Sheets caps a cell at **50,000 characters**. Large, growing datasets (the Commission-paid ledger and the Installer reimbursement records) are **sharded by key** (one `commPaid_YYYY-MM` / `instRecords_YYYY-MM` cell per month), never stored as a single JSON blob.
 - **`no-cors` writes cannot be read back inline**, and the Apps Script `doPost` returns HTTP 200 even on an internal error — together these can hide a failed save, so the ledger **reads back and verifies every write**; other keys stay fire-and-forget.
 - **Do not add scope-requiring calls to the deployed Apps Script casually** (e.g. `LockService`): a scope change breaks the live deployment until re-authorised/re-deployed. Write concurrency is handled client-side (serialised writes) instead.
 
@@ -562,3 +599,4 @@ After any code change: open the project at script.google.com → Save (Cmd+S) �
 | **2026-08 (Commission cont.)** | **Business group** (RAC-led / CAC-led) selector added per branch in Target Setup (`bizGroup`, per-month, English labels), used only by commercial commission. Target Setup now **opens read-only** with an Edit/Done toggle. **L&CAC (Commercial) commission** built (`commRuleCom`, two rate columns) with the **invoice-level model**: unit = one SI; tier locked to invoice month; brokerage allocated by `fee × (invoice line amount ÷ SO three-line total)`; incremental payout `full × collection% − paid-before`; four streams (RAC-SP / RAC-BM / L&CAC-SP / L&CAC-BM). **Sales Order Report** upload added (`Detail Sales Order` → per-SO RAC+LAC+CAC total, integer, upsert-merged into `soDenoms`). **Module 3 inputs** (`commBrokerage` / `commCollection` / `commPaid`) and **Post month to Commission-paid** added. China Projects join commission as virtual invoices using each row's `3rd Commission` / `Coll. Progress` / `SO Amt excl tax`. Negatives **floor to 0** (⚠ fee &gt; commission / ⚠ over-paid), never clawed back |
 | **2026-08 (Commission polish)** | **Group-as-department**: when a branch has Target Setup groups, each group's lead is its BM and achievement/invoices are scoped to the group (RAC-BM and L&CAC-BM). Commission split into **three sub-tabs** (RAC / L&CAC / Inputs); detail columns renamed (SI Base, Com Full) and set to no-wrap; commission stream label COM → L&CAC. **Export Excel** added — one `.zip` of 1 + (n+1) three-sheet workbooks (Summary / Detail / SI Base) **plus a matching Summary PNG for each**, grouped departments partitioned by ◆ group; attribution by roster. Rule cards default collapsed |
 | **2026-08-21 (Commission fix)** | **Commission-paid ledger sharded per month** (`commPaid_YYYY-MM`, one cell per month) to escape the Google Sheets 50,000-char single-cell limit that was silently dropping posted months (`no-cors` write + `doPost` 200-on-error hid the failure, so “saved ✓” was false). Load now **merges all month shards** and **auto-migrates** the legacy single `commPaid` cell (kept read-only as a fallback); Post / Unpost / Save write only the changed month shard and **read it back to verify** before reporting `Ledger saved & verified ✓` — a mismatch raises an explicit warning. Fossil duplicate settlement rows cleaned out of the ledger. **No Apps Script change** (kept generic to avoid a scope-change outage). Engine, Part 4, Post/Unpost and cross-month top-ups unchanged — only the load/save boundary shards on write and merges on read |
+| **2026-08 (Installer Incentive)** | New **third left-nav area** — Installer Incentive — for per-model set-installation incentives (fully manual, no SI/ERP link). Three sub-tabs: **Reimbursements** (entry with month auto-derived from the `MXI+yyyymmdd+seq` number, multi-installer / multi-item lines, duplicate-number and non-policy-item guards, rate + model **frozen at submit**; a four-level Month → Reimbursement → Installer → line records tree with substring filters and **Revoke**-to-edit), **Incentive Policy** (35-model rate table, editable and reorderable, with live text + dropdown filters), and **Summary & Installers** (per-installer × month yearly matrix showing only months with data, **$2,000/month** threshold highlight + reminder + Excel export of each crossing's reimbursements; collapsible installer master that keeps history on delete). New cloud keys `installerPolicy`, `installerList`, and per-month `instRecords_YYYY-MM` (sharded, read-back-verified). Accent-insensitive search throughout. **No Apps Script change.** |
